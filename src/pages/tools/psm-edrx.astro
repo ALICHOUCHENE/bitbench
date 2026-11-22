@@ -1,0 +1,1020 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import Toggle from '../../components/Toggle.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { toolUrl } from '../../utils/paths';
+import {
+  EDRX_S1,
+  T3324_UNITS,
+  T3412_EXT_UNITS,
+  edrxValidCycles,
+  ptwValues,
+  toBits,
+} from '../../lib/psm-edrx';
+import { formatDuration } from '../../lib/format';
+
+const references = [
+  {
+    title: '3GPP TS 24.008 — Mobile radio interface Layer 3 specification; Core network protocols; Stage 3',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1015',
+    note: '§10.5.7.3 Table 10.5.172 (GPRS Timer), §10.5.7.4 Table 10.5.163 (GPRS Timer 2 → T3324), §10.5.7.4a Table 10.5.163a (GPRS Timer 3 → T3412 extended), §10.5.5.32 Table 10.5.5.32 (Extended DRX parameters), §4.7.2.8 (T3324). Checked against ETSI TS 124 008 V19.5.0.',
+  },
+  {
+    title: '3GPP TS 24.301 — Non-Access-Stratum (NAS) protocol for Evolved Packet System (EPS); Stage 3',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1072',
+    note: '§5.3.5 (periodic TAU timer T3412, mobile reachable timer), §5.3.11 (power saving mode). Checked against V19.8.0.',
+  },
+  {
+    title: '3GPP TS 36.304 — E-UTRA; User Equipment (UE) procedures in idle mode',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=2432',
+    note: '§7.3 Paging in extended DRX (paging hyperframe, PTW_start, PTW_end, TeDRX,H ranges). Checked against V19.3.0.',
+  },
+  {
+    title: '3GPP TS 27.007 — AT command set for User Equipment (UE)',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1515',
+    note: '§7.38 +CPSMS, §7.40 +CEDRXS, §7.41 +CEDRXRDP, §10.1.22 +CEREG. Checked against V19.6.0.',
+  },
+];
+
+const durUnits = [
+  { value: 's', label: 's' },
+  { value: 'min', label: 'min' },
+  { value: 'h', label: 'h' },
+  { value: 'd', label: 'days' },
+];
+const shortUnits = [
+  { value: 's', label: 's' },
+  { value: 'min', label: 'min' },
+];
+
+function cycleLabel(code: number, seconds: number): string {
+  return `${toBits(code, 4)} · ${seconds} s${seconds >= 60 ? ` (${formatDuration(seconds)})` : ''}`;
+}
+const wbCycles = edrxValidCycles('wb').map((c) => ({ value: String(c.code), label: cycleLabel(c.code, c.seconds) }));
+const wbPtw = ptwValues('wb').map((p) => ({ value: String(p.code), label: `${toBits(p.code, 4)} · ${p.seconds} s` }));
+const sec = (s: number | null) => (s === null ? '—' : formatDuration(s));
+---
+
+<ToolLayout slug="psm-edrx" references={references}>
+  <form id="psm-form" novalidate>
+    <div class="tool-grid">
+      <fieldset class="panel">
+        <legend class="visually-hidden">PSM timers</legend>
+        <h2 class="panel-title">PSM timers (T3412 extended, T3324)</h2>
+        <div class="fields fields--wide">
+          <Toggle name="psm" label="Request PSM (AT+CPSMS)" checked />
+          <Segmented
+            name="psmIn"
+            label="Input"
+            options={[
+              { value: 'dur', label: 'From duration' },
+              { value: 'bits', label: 'Decode bits' },
+            ]}
+          />
+          <div data-show="psmIn=dur">
+            <Segmented
+              name="round"
+              label="Rounding"
+              options={[
+                { value: 'nearest', label: 'Nearest' },
+                { value: 'up', label: 'Never shorter' },
+                { value: 'down', label: 'Never longer' },
+              ]}
+            />
+          </div>
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <div data-show="psmIn=dur">
+            <NumberInput name="tau" label="Periodic TAU (T3412)" value="24" units={durUnits} unitValue="h" help="How often the modem wakes to re-register" />
+          </div>
+          <div data-show="psmIn=dur">
+            <NumberInput name="act" label="Active Time (T3324)" value="2" units={durUnits} unitValue="min" help="Reachable time after each connection" />
+          </div>
+          <div data-show="psmIn=bits" hidden>
+            <NumberInput name="tauBits" label="T3412 extended byte" value="00111000" inputmode="text" help="8 bits, or hex: 0x38, 38" />
+          </div>
+          <div data-show="psmIn=bits" hidden>
+            <NumberInput name="actBits" label="T3324 byte" value="00100010" inputmode="text" help="8 bits, or hex: 0x22, 22" />
+          </div>
+        </div>
+      </fieldset>
+
+      <section class="panel" aria-labelledby="psm-results">
+        <h2 class="panel-title" id="psm-results">PSM encoding</h2>
+        <h3 class="sub">T3412 extended — periodic TAU</h3>
+        <dl class="results">
+          <ResultRow label="Bits (unit · value)" name="tau-bin" primary />
+          <ResultRow label="Hex" name="tau-hex" />
+          <ResultRow label="Unit × value" name="tau-unit" />
+          <ResultRow label="Actual duration" name="tau-dur" />
+          <ResultRow label="Difference from requested" name="tau-err" />
+          <ResultRow label="Neighbouring values" name="tau-alt" />
+        </dl>
+        <div id="tau-notes" class="notes" aria-live="polite"></div>
+        <h3 class="sub">T3324 — Active Time</h3>
+        <dl class="results">
+          <ResultRow label="Bits (unit · value)" name="act-bin" primary />
+          <ResultRow label="Hex" name="act-hex" />
+          <ResultRow label="Unit × value" name="act-unit" />
+          <ResultRow label="Actual duration" name="act-dur" />
+          <ResultRow label="Difference from requested" name="act-err" />
+          <ResultRow label="Neighbouring values" name="act-alt" />
+        </dl>
+        <div id="act-notes" class="notes" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <div class="tool-grid section">
+      <fieldset class="panel">
+        <legend class="visually-hidden">eDRX</legend>
+        <h2 class="panel-title">eDRX cycle and paging time window</h2>
+        <div class="fields fields--wide">
+          <Toggle name="edrx" label="Request eDRX (AT+CEDRXS)" checked />
+          <Segmented
+            name="edrxMode"
+            label="Radio access"
+            options={[
+              { value: 'wb', label: 'LTE-M (WB-S1)' },
+              { value: 'nb', label: 'NB-IoT (NB-S1)' },
+            ]}
+          />
+          <Segmented
+            name="edrxIn"
+            label="Input"
+            options={[
+              { value: 'list', label: 'Pick value' },
+              { value: 'dur', label: 'From duration' },
+              { value: 'bits', label: 'Decode bits' },
+            ]}
+          />
+          <div data-show="edrxIn=dur" hidden>
+            <Segmented
+              name="edrxRound"
+              label="Rounding"
+              options={[
+                { value: 'nearest', label: 'Nearest' },
+                { value: 'up', label: 'Never shorter' },
+                { value: 'down', label: 'Never longer' },
+              ]}
+            />
+          </div>
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <div data-show="edrxIn=list">
+            <SelectInput name="cycle" label="eDRX cycle" options={wbCycles} value="2" help="Only values valid for the selected access" />
+          </div>
+          <div data-show="edrxIn=list">
+            <SelectInput name="ptw" label="Paging time window" options={wbPtw} value="1" />
+          </div>
+          <div data-show="edrxIn=dur" hidden>
+            <NumberInput name="cycleDur" label="Desired eDRX cycle" value="20" units={shortUnits} unitValue="s" help="Worst-case paging latency" />
+          </div>
+          <div data-show="edrxIn=dur" hidden>
+            <NumberInput name="ptwDur" label="Desired PTW" value="2.56" unit="s" />
+          </div>
+          <div data-show="edrxIn=bits" hidden>
+            <NumberInput name="edrxBits" label="eDRX value (bits 4–1)" value="0010" inputmode="text" help="4 bits or one hex digit" />
+          </div>
+          <div data-show="edrxIn=bits" hidden>
+            <NumberInput name="ptwBits" label="PTW (bits 8–5)" value="0001" inputmode="text" help="4 bits or one hex digit" />
+          </div>
+        </div>
+      </fieldset>
+
+      <section class="panel" aria-labelledby="edrx-results">
+        <h2 class="panel-title" id="edrx-results">eDRX encoding</h2>
+        <dl class="results">
+          <ResultRow label="eDRX value (4 bits)" name="edrx-bin" primary />
+          <ResultRow label="eDRX cycle" name="edrx-dur" />
+          <ResultRow label="Cycle in hyperframes (TeDRX,H)" name="edrx-hf" />
+          <ResultRow label="Difference from requested" name="edrx-err" />
+          <ResultRow label="PTW value (4 bits)" name="ptw-bin" />
+          <ResultRow label="Paging time window" name="ptw-dur" />
+          <ResultRow label="IE octet 3 (PTW · eDRX)" name="edrx-octet" />
+        </dl>
+        <div id="edrx-notes" class="notes" aria-live="polite"></div>
+      </section>
+    </div>
+
+    <section class="panel section" aria-labelledby="at-title">
+      <h2 class="panel-title" id="at-title">AT commands (3GPP TS 27.007)</h2>
+      <div class="fields fields--wide">
+        <Toggle name="edrxUrc" label="Use +CEDRXS mode 2 (also enables the +CEDRXP URC with the granted values)" checked />
+      </div>
+      <div class="at-grid">
+        <div>
+          <CodeOutput name="at-set" label="Request" />
+          <p class="help">Send after power-up, before attach; or follow with a re-attach / TAU so the new request reaches the network.</p>
+        </div>
+        <div>
+          <CodeOutput name="at-read" label="Read what the network granted" />
+          <p class="help">
+            <code>AT+CEREG=4</code> makes <code>+CEREG</code> report the allocated Active-Time and Periodic-TAU.
+            <code>AT+CPSMS?</code> only echoes your <em>request</em>.
+          </p>
+        </div>
+        <div>
+          <CodeOutput name="at-off" label="Disable" />
+          <p class="help"><code>AT+CPSMS=2</code> / <code>AT+CEDRXS=3</code> also discard the stored values.</p>
+        </div>
+      </div>
+      <p class="note">
+        <code>+CEDRXS</code> carries only the 4-bit eDRX cycle. TS 27.007 has no standard command to request the paging time
+        window; many modules provide a vendor-specific one, so check your module's AT command manual. The granted PTW is
+        reported in <code>+CEDRXP</code> and <code>+CEDRXRDP</code>.
+      </p>
+
+      <div class="field" style="margin-top: var(--s4)">
+        <label for="f-resp">Decode a modem response</label>
+        <textarea id="f-resp" name="resp" rows="3" spellcheck="false" class="mono" placeholder={'+CEREG: 1,"002F","0012BEEF",7,,,"00100010","00111000"\n+CEDRXP: 4,"0010","0010","0001"'}></textarea>
+        <p class="help">Paste <code>+CEREG</code>, <code>+CEDRXP</code>, <code>+CEDRXRDP</code>, <code>+CEDRXS?</code> or <code>+CPSMS?</code> lines. For a whole modem log, use the <a href={toolUrl('at-decoder')}>AT response decoder</a>.</p>
+      </div>
+      <div id="resp-out" aria-live="polite"></div>
+    </section>
+
+    <section class="panel section" aria-labelledby="tl-title">
+      <h2 class="panel-title" id="tl-title">One TAU period</h2>
+      <div id="timeline" class="timeline"></div>
+      <p id="timeline-cap" class="help"></p>
+      <div id="timeline-warn"></div>
+
+      <h3 class="sub" style="margin-top: var(--s5)">Energy per period</h3>
+      <div class="fields">
+        <NumberInput name="connS" label="Connected burst (TX/RX)" value="0" unit="s" help="Per period; 0 to ignore" />
+        <NumberInput name="connMa" label="Connected current" value="100" unit="mA" />
+        <NumberInput name="actMa" label="Average current in Active Time" value="6" unit="mA" help="Illustrative; measure yours" />
+        <NumberInput name="psmUa" label="PSM floor current" value="3" unit="µA" help="Illustrative; measure yours" />
+      </div>
+      <dl class="results" style="margin-top: var(--s3)">
+        <ResultRow label="Average current over the period" name="avg" primary />
+        <ResultRow label="Charge per period" name="charge" />
+        <ResultRow label="Share of time in PSM" name="psm-share" />
+      </dl>
+      <p class="btn-row" style="margin-top: var(--s3)">
+        <a id="battery-link" class="btn btn--primary" href={toolUrl('battery-life')} data-base={toolUrl('battery-life')}>Estimate battery life with these states →</a>
+      </p>
+      <p class="help">The default currents are typical illustrative values, not data for any particular module. For a full budget with connection setup, RRC inactivity, repetitions and periodic TAUs, use the <a href={toolUrl('lte-power')}>LTE-M power budget</a>.</p>
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>T3412 extended / T3324 byte:   bits 8-6 = unit, bits 5-1 = value (0-31)
+duration = value × unit
+
+eDRX IE octet 3:               bits 8-5 = PTW, bits 4-1 = eDRX value
+PTW (WB-S1) = 1.28 s × (n + 1)       PTW (NB-S1) = 2.56 s × (n + 1)
+eDRX cycle  = TeDRX,H × 10.24 s      (one hyperframe = 1024 radio frames)</pre>
+    <p>
+      "From duration" searches every encodable duration (all units × 0–31, ignoring "deactivated" and undefined units)
+      and returns the nearest one, or the nearest one not shorter / not longer than requested. When several encodings give
+      the same duration (60 s = 2 s × 30 = 1 min × 1), the coarsest unit is used.
+    </p>
+
+    <h3>T3412 extended value — GPRS Timer 3, TS 24.008 Table 10.5.163a</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Bits 8-6</th><th>Unit</th><th class="num">Max (× 31)</th></tr></thead>
+        <tbody>
+          {T3412_EXT_UNITS.map((u) => (
+            <tr><td class="mono">{toBits(u.code, 3)}</td><td>{u.label}</td><td class="num">{sec(u.step === null ? null : u.step * 31)}</td></tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <p>
+      320 h is applied only when the UE receives the IE integrity-protected (otherwise it reads 1 h). "Deactivated" is not
+      applicable to T3412 extended: the IE is treated as absent. A value of zero deactivates periodic TAU.
+    </p>
+
+    <h3>T3324 Active Time — GPRS Timer 2, TS 24.008 Tables 10.5.163 / 10.5.172</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Bits 8-6</th><th>Unit</th><th class="num">Max (× 31)</th></tr></thead>
+        <tbody>
+          {T3324_UNITS.filter((u) => u.status !== 'reinterpreted').map((u) => (
+            <tr><td class="mono">{toBits(u.code, 3)}</td><td>{u.label}</td><td class="num">{sec(u.step === null ? null : u.step * 31)}</td></tr>
+          ))}
+          <tr><td class="mono">011–110</td><td>undefined: interpreted as 1 minute</td><td class="num">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>eDRX cycle — TS 24.008 Table 10.5.5.32 (S1 mode)</h3>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Bits 4-1</th><th class="num">Cycle</th><th class="num">Hyperframes</th><th>LTE-M (WB-S1)</th><th>NB-IoT (NB-S1)</th></tr></thead>
+        <tbody>
+          {EDRX_S1.map((c) => (
+            <tr>
+              <td class="mono">{toBits(c.code, 4)}</td>
+              <td class="num">{c.seconds} s</td>
+              <td class="num">{c.hyperframes ?? '— (512 frames)'}</td>
+              <td>{c.code >= 14 ? 'read as 1101' : 'valid'}</td>
+              <td>{c.code <= 1 ? 'IE ignored (no eDRX)' : [4, 6, 7, 8].includes(c.code) ? 'read as 0010' : 'valid'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>What you request is not what you get</h2>
+    <p>
+      <code>AT+CPSMS</code> and <code>AT+CEDRXS</code> only set the values the modem puts in its next ATTACH or TRACKING
+      AREA UPDATE REQUEST. The network answers with its own T3412 extended, T3324 and eDRX values in the ACCEPT, and it
+      may take local configuration into account (TS 24.008 §4.7.2.8). Networks commonly round, cap or simply ignore a
+      request. Always read back the grant: with <code>AT+CEREG=4</code> the <code>+CEREG</code> result carries the
+      allocated Active-Time and Periodic-TAU as the last two quoted bytes, and <code>+CEDRXP</code> /
+      <code>AT+CEDRXRDP</code> report the granted eDRX cycle and PTW. Paste those lines into the decoder above. The device
+      may use PSM only if the network returned a T3324 other than "deactivated" (TS 24.301 §5.3.11).
+    </p>
+
+    <h2>Common mistakes</h2>
+    <ul>
+      <li>
+        <strong>Using one unit table for both timers.</strong> The unit bits mean different things: <code>001</code> is 1
+        hour in T3412 extended but 1 minute in T3324, and <code>000</code> is 10 minutes against 2 seconds.
+        <code>"00100001"</code> is 1 h as a TAU and 1 min as an Active Time.
+      </li>
+      <li>
+        <strong>Putting the bytes in the wrong place.</strong> The first two <code>+CPSMS</code> parameters after the mode
+        are the GERAN/UTRAN periodic RAU and GPRS READY timers. For LTE-M and NB-IoT the TAU is the third parameter and the
+        Active Time the fourth: <code>AT+CPSMS=1,,,"TAU","Active"</code>.
+      </li>
+      <li>
+        <strong>eDRX values that do not exist on your RAT.</strong> NB-IoT does not have 5.12 s or 10.24 s cycles (the
+        request is dropped), and 61.44–143.36 s are read as 20.48 s. LTE-M stops at 2621.44 s (256 hyperframes); the two
+        longest NB-IoT values are read as 2621.44 s.
+      </li>
+      <li>
+        <strong>Forgetting when the timers start.</strong> T3412 and T3324 both start when the modem drops back to idle
+        after a connection (TS 24.008 §4.7.2.8, TS 24.301 §5.3.5). Every uplink restarts the TAU period, so a device that
+        reports hourly never sends a periodic TAU even with a 24 h T3412.
+      </li>
+      <li>
+        <strong>Zero is not the same as off.</strong> T3324 = 0 means "PSM straight away, no paging window"; T3324
+        "deactivated" means no PSM at all. A T3412 value of zero turns periodic TAU off.
+      </li>
+    </ul>
+
+    <h2>Combining PSM and eDRX</h2>
+    <p>
+      During the Active Time the modem is in idle mode and must listen for paging. Without eDRX it wakes every normal DRX
+      paging cycle (a few seconds, set by the network). With eDRX it sleeps for the eDRX cycle and listens only inside a paging time window,
+      whose position in the cycle is derived from the UE identity (TS 36.304 §7.3). This only helps if the eDRX cycle is
+      shorter than the Active Time; otherwise the modem may go back to PSM before its first window. A long Active Time
+      with a long eDRX cycle gives "reachable within a few minutes" behaviour at a fraction of the idle current.
+    </p>
+    <p>
+      The network also runs a mobile reachable timer, by default T3412 + 4 minutes (TS 24.301 §5.3.5). Downlink sent while
+      the device is in PSM is buffered or dropped depending on the network, so design the application to pull data after
+      each uplink rather than wait to be paged.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, setError, setResult, clearResults, esc } from '../../scripts/tool-client';
+  import { applyUnit, formatDuration, formatNumber, formatPercent, formatSI, parseNumber } from '../../lib/format';
+  import {
+    EDRX_S1,
+    batteryStatesParam,
+    cedrxsCommand,
+    cedrxsDisableCommand,
+    cpsmsCommand,
+    cpsmsDisableCommand,
+    decodeEdrx,
+    decodeTimer,
+    edrxOctet,
+    edrxValidCycles,
+    findEdrx,
+    findPtw,
+    findTimer,
+    hexByte,
+    parseByte,
+    parseModemResponse,
+    parseNibble,
+    ptwSeconds,
+    timelineSplit,
+    timerBitsSpaced,
+    timerMaxSeconds,
+    toBits,
+    TIMER_NAMES,
+    type EdrxMode,
+    type NearestResult,
+    type PsmState,
+    type TimerDecoded,
+    type TimerKind,
+  } from '../../lib/psm-edrx';
+
+  const UNIT_S: Record<string, number> = { s: 1, min: 60, h: 3600, d: 86400 };
+  const form = document.getElementById('psm-form') as HTMLFormElement;
+  const cycleSel = form.elements.namedItem('cycle') as HTMLSelectElement;
+  const ptwSel = form.elements.namedItem('ptw') as HTMLSelectElement;
+  let optionsMode: EdrxMode = 'wb';
+
+  function cycleLabel(code: number, seconds: number): string {
+    return `${toBits(code, 4)} · ${seconds} s${seconds >= 60 ? ` (${formatDuration(seconds)})` : ''}`;
+  }
+
+  /** Rebuild the cycle and PTW selects for an access mode; keeps the selection when possible. */
+  function buildOptions(mode: EdrxMode) {
+    const prev = Number(cycleSel.value);
+    const valid = edrxValidCycles(mode);
+    let keep = valid.find((c) => c.code === prev)?.code;
+    if (keep === undefined && Number.isInteger(prev) && cycleSel.value !== '') {
+      keep = findEdrx(mode, EDRX_S1[prev]?.seconds ?? 20.48).closest.code;
+    }
+    cycleSel.replaceChildren(
+      ...valid.map((c) => new Option(cycleLabel(c.code, c.seconds), String(c.code), false, c.code === keep)),
+    );
+    const prevPtw = ptwSel.value;
+    ptwSel.replaceChildren(
+      ...Array.from({ length: 16 }, (_, n) => new Option(`${toBits(n, 4)} · ${ptwSeconds(mode, n)} s`, String(n))),
+    );
+    ptwSel.value = prevPtw || '1';
+    optionsMode = mode;
+  }
+
+  // The URL may ask for NB-IoT with a code that the server-rendered (LTE-M) list lacks.
+  const urlMode = new URLSearchParams(location.search).get('edrxMode');
+  if (urlMode === 'nb') buildOptions('nb');
+
+  function toggleShow(v: Record<string, string>) {
+    document.querySelectorAll<HTMLElement>('[data-show]').forEach((el) => {
+      const [key, vals] = el.dataset.show!.split('=');
+      el.hidden = !vals.split(',').includes(v[key]);
+    });
+  }
+
+  function showRow(name: string, visible: boolean) {
+    const row = document.getElementById(`r-${name}`)?.closest<HTMLElement>('.result');
+    if (row) row.hidden = !visible;
+  }
+
+  function notes(id: string, items: { text: string; level?: 'warn' | 'error' | 'info' }[]) {
+    const el = document.getElementById(id)!;
+    el.innerHTML = items
+      .map((n) => `<p class="note${n.level === 'info' ? '' : ` note--${n.level ?? 'warn'}`}">${esc(n.text)}</p>`)
+      .join('');
+  }
+
+  // A typed time suffix ("90 s", "2h", "1.5 d", "30min") wins over the unit selector.
+  const SUFFIX_S: Record<string, number> = { s: 1, sec: 1, m: 60, min: 60, h: 3600, hr: 3600, d: 86400, day: 86400, days: 86400 };
+
+  function duration(name: string, raw: string, unit: string, label: string): number | null {
+    const m = /^\s*(\d+(?:\.\d*)?|\.\d+)\s*(s|sec|min|m|hr|h|days|day|d)\s*$/i.exec(raw);
+    let seconds: number | null = null;
+    if (m) seconds = Number(m[1]) * SUFFIX_S[m[2].toLowerCase()];
+    else {
+      const v = parseNumber(raw);
+      if (v !== null) seconds = applyUnit(raw, v, UNIT_S[unit] ?? 1);
+    }
+    if (seconds === null) return setError(name, `${label} must be a number, e.g. 24 or 90 s.`), null;
+    if (seconds < 0) return setError(name, `${label} cannot be negative.`), null;
+    setError(name, null);
+    return seconds;
+  }
+
+  function pick<T>(r: NearestResult<T>, mode: string): T {
+    if (mode === 'up') return r.notBelow ?? r.closest;
+    if (mode === 'down') return r.notAbove ?? r.closest;
+    return r.closest;
+  }
+
+  function diffText(actual: number, wanted: number): string {
+    const d = actual - wanted;
+    if (Math.abs(d) < 1e-9 * Math.max(1, wanted)) return 'exact';
+    const sign = d > 0 ? '+' : '−';
+    const pct = wanted > 0 ? ` (${sign}${formatNumber((Math.abs(d) / wanted) * 100, 3)} %)` : '';
+    return `${sign}${formatDuration(Math.abs(d))}${pct}`;
+  }
+
+  interface TimerOut {
+    /** Byte to send in +CPSMS, or null if input invalid. */
+    byte: number | null;
+    /** Effective seconds; null = deactivated; NaN = invalid. */
+    seconds: number | null;
+    decoded: TimerDecoded | null;
+  }
+
+  function timer(kind: TimerKind, prefix: string, v: Record<string, string>): TimerOut {
+    const rows = ['bin', 'hex', 'unit', 'dur', 'err', 'alt'].map((r) => `${prefix}-${r}`);
+    const byDuration = v.psmIn === 'dur';
+    showRow(`${prefix}-err`, byDuration);
+    showRow(`${prefix}-alt`, byDuration);
+    const items: { text: string; level?: 'warn' | 'error' | 'info' }[] = [];
+    let byte: number;
+
+    if (byDuration) {
+      const want = duration(prefix, v[prefix], v[`${prefix}Unit`], kind === 't3412' ? 'Periodic TAU' : 'Active Time');
+      if (want === null) {
+        clearResults(...rows);
+        notes(`${prefix}-notes`, []);
+        return { byte: null, seconds: NaN, decoded: null };
+      }
+      const r = findTimer(kind, want);
+      const chosen = pick(r, v.round);
+      byte = chosen.byte;
+      setResult(`${prefix}-err`, diffText(chosen.seconds, want));
+      const alt = [r.notAbove, r.notBelow].filter((e) => e && e.byte !== chosen.byte);
+      setResult(
+        `${prefix}-alt`,
+        r.exact || alt.length === 0 ? '—' : alt.map((e) => `${formatDuration(e!.seconds)} = ${e!.bits}`).join(' · '),
+      );
+      if (r.aboveMax) {
+        items.push({
+          text: `${formatDuration(want)} is above the longest ${TIMER_NAMES[kind]} value, ${formatDuration(timerMaxSeconds(kind))}; using the maximum.`,
+          level: 'error',
+        });
+      }
+    } else {
+      const p = parseByte(v[`${prefix}Bits`]);
+      if (!p.ok) {
+        setError(`${prefix}Bits`, p.error);
+        clearResults(...rows);
+        notes(`${prefix}-notes`, []);
+        return { byte: null, seconds: NaN, decoded: null };
+      }
+      setError(`${prefix}Bits`, null);
+      byte = p.value;
+    }
+
+    const d = decodeTimer(kind, byte);
+    setResult(`${prefix}-bin`, timerBitsSpaced(byte));
+    setResult(`${prefix}-hex`, hexByte(byte));
+    setResult(`${prefix}-unit`, d.unit.step === null ? 'deactivated' : `${d.unit.label} × ${d.value}`);
+    setResult(`${prefix}-dur`, d.seconds === null ? 'deactivated' : d.seconds === 0 ? '0 (see note)' : formatDuration(d.seconds));
+    for (const n of d.notes) items.push({ text: n });
+    notes(`${prefix}-notes`, items);
+    return { byte, seconds: d.seconds, decoded: d };
+  }
+
+  interface EdrxOut {
+    code: number | null;
+    cycle: number | null; // effective seconds; null = eDRX not used
+    hyperframes: number | null;
+    ptw: number | null; // seconds
+    ptwCode: number | null;
+  }
+
+  function edrx(v: Record<string, string>): EdrxOut {
+    const mode = v.edrxMode as EdrxMode;
+    const rows = ['edrx-bin', 'edrx-dur', 'edrx-hf', 'edrx-err', 'ptw-bin', 'ptw-dur', 'edrx-octet'];
+    const items: { text: string; level?: 'warn' | 'error' | 'info' }[] = [];
+    showRow('edrx-err', v.edrxIn === 'dur');
+    let code: number | null = null;
+    let ptwCode: number | null = null;
+
+    if (v.edrxIn === 'list') {
+      code = Number(cycleSel.value);
+      ptwCode = Number(ptwSel.value);
+    } else if (v.edrxIn === 'dur') {
+      const want = duration('cycleDur', v.cycleDur, v.cycleDurUnit, 'eDRX cycle');
+      const wantPtw = duration('ptwDur', v.ptwDur, 's', 'PTW');
+      if (want !== null) {
+        const r = findEdrx(mode, want);
+        const c = pick(r, v.edrxRound);
+        code = c.code;
+        setResult('edrx-err', diffText(c.seconds, want));
+        if (r.aboveMax) items.push({ text: `Longest ${mode === 'wb' ? 'LTE-M' : 'NB-IoT'} eDRX cycle is ${formatDuration(c.seconds)}.`, level: 'error' });
+        if (!r.notAbove) items.push({ text: `Shortest ${mode === 'wb' ? 'LTE-M' : 'NB-IoT'} eDRX cycle is ${c.seconds} s.`, level: 'warn' });
+      }
+      if (wantPtw !== null) ptwCode = findPtw(mode, wantPtw).closest.code;
+    } else {
+      const p = parseNibble(v.edrxBits);
+      setError('edrxBits', p.ok ? null : p.error);
+      if (p.ok) code = p.value;
+      const q = parseNibble(v.ptwBits);
+      setError('ptwBits', q.ok ? null : q.error);
+      if (q.ok) ptwCode = q.value;
+    }
+
+    if (code === null || ptwCode === null) {
+      clearResults(...rows);
+      notes('edrx-notes', items);
+      return { code: null, cycle: null, hyperframes: null, ptw: null, ptwCode: null };
+    }
+
+    const d = decodeEdrx(mode, code);
+    const ptw = ptwSeconds(mode, ptwCode);
+    setResult('edrx-bin', d.bits);
+    setResult('edrx-dur', d.effective ? `${d.effective.seconds} s${d.effective.seconds >= 60 ? ` = ${formatDuration(d.effective.seconds)}` : ''}` : 'not used');
+    setResult('edrx-hf', d.effective ? (d.effective.hyperframes === null ? '— (T = 512 radio frames)' : String(d.effective.hyperframes)) : '—');
+    setResult('ptw-bin', toBits(ptwCode, 4));
+    setResult('ptw-dur', `${ptw} s`);
+    const octet = edrxOctet(ptwCode, code);
+    setResult('edrx-octet', `${toBits(ptwCode, 4)} ${toBits(code, 4)} = ${hexByte(octet)}`);
+    if (d.note) items.push({ text: d.note, level: d.status === 'ignored' ? 'error' : 'warn' });
+    if (d.effective && d.effective.hyperframes === null) {
+      items.push({
+        text: 'With the 5.12 s cycle there is no paging hyperframe or PTW: the UE monitors paging occasions as in normal DRX with T = 512 radio frames (TS 36.304 §7.3). The PTW is not used.',
+        level: 'info',
+      });
+    } else if (d.effective && ptw >= d.effective.seconds) {
+      items.push({ text: `The PTW (${ptw} s) is not shorter than the eDRX cycle (${d.effective.seconds} s): the UE never gets an eDRX sleep.`, level: 'warn' });
+    }
+    notes('edrx-notes', items);
+    return {
+      code,
+      cycle: d.effective?.seconds ?? null,
+      hyperframes: d.effective?.hyperframes ?? null,
+      ptw: d.effective && d.effective.hyperframes !== null ? ptw : null,
+      ptwCode,
+    };
+  }
+
+  // ------------------------------------------------------------------ timeline (inline SVG)
+
+  interface Timeline {
+    conn: number;
+    active: number;
+    activeLabel: string;
+    sleep: number; // Infinity = open-ended
+    sleepLabel: string;
+    endLabel: string;
+    edrx: { cycle: number; ptw: number | null } | null;
+  }
+
+  let lastTimeline: Timeline | null = null;
+  const tlBox = document.getElementById('timeline')!;
+
+  /** formatDuration shows two units and truncates; round to the second unit instead and mark it. */
+  function approxDur(sec: number): string {
+    const g = sec >= 86400 ? 3600 : sec >= 3600 ? 60 : sec >= 60 ? 1 : 0.01;
+    const r = Math.round(sec / g) * g;
+    return `${Math.abs(r - sec) > 1e-9 ? '≈ ' : ''}${formatDuration(r)}`;
+  }
+
+  function textW(s: string, px = 12): number {
+    return s.length * px * 0.58;
+  }
+
+  function drawTimeline(t: Timeline | null) {
+    lastTimeline = t;
+    if (!t) {
+      tlBox.innerHTML = '';
+      return;
+    }
+    const W = Math.max(280, Math.round(tlBox.clientWidth || 640));
+    const pad = 6;
+    const inner = W - 2 * pad;
+    const barY = 40;
+    const barH = 28;
+    const left = t.conn + t.active;
+    const open = !Number.isFinite(t.sleep);
+    const split = open ? timelineSplit(1, 1e12) : timelineSplit(left, t.sleep);
+    const leftW = inner * split.activeShare;
+    const sL = left > 0 ? leftW / left : 0;
+    const x0 = pad;
+    const connW = t.conn > 0 ? Math.max(3, t.conn * sL) : 0;
+    const actX = x0 + connW;
+    const actW = Math.max(0, leftW - connW);
+    const aScale = t.active > 0 ? actW / t.active : 0;
+    const sleepX = x0 + leftW;
+    const sleepW = inner - leftW;
+    const parts: string[] = [];
+
+    // Bars
+    if (connW > 0) parts.push(`<rect class="tl-conn" x="${x0}" y="${barY}" width="${connW}" height="${barH}"/>`);
+    if (actW > 0) parts.push(`<rect class="tl-active" x="${actX}" y="${barY}" width="${actW}" height="${barH}"/>`);
+    if (sleepW > 0 && (t.sleep > 0 || open)) {
+      parts.push(`<rect class="tl-sleep" x="${sleepX}" y="${barY}" width="${sleepW}" height="${barH}"/>`);
+      if (open) {
+        const ax = sleepX + sleepW;
+        parts.push(`<path class="tl-open" d="M${ax - 10} ${barY - 4} L${ax} ${barY + barH / 2} L${ax - 10} ${barY + barH + 4}"/>`);
+      }
+    }
+
+    // eDRX paging windows inside the active part (the UE's PTW offset depends on its identity; drawn at 0)
+    const drawPtw = !!t.edrx && t.active > 0 && t.edrx.cycle <= t.active;
+    if (t.edrx && drawPtw) {
+      const { cycle, ptw } = t.edrx;
+      const n = Math.ceil(t.active / cycle);
+      if (n * 4 > actW) {
+        parts.push(`<rect class="tl-ptw-dense" x="${actX}" y="${barY + 6}" width="${actW}" height="${barH - 12}"/>`);
+      } else {
+        for (let k = 0; k < n; k++) {
+          const ts = k * cycle;
+          const w = ptw === null ? 1.5 : Math.max(2, Math.min(ptw, cycle, t.active - ts) * aScale);
+          parts.push(`<rect class="tl-ptw" x="${actX + ts * aScale}" y="${barY + 5}" width="${w}" height="${barH - 10}"/>`);
+        }
+      }
+    }
+
+    // Axis break
+    if (split.broken && sleepW > 30) {
+      const bx = sleepX + Math.min(24, sleepW / 4);
+      parts.push(
+        `<path class="tl-break-gap" d="M${bx - 4} ${barY - 6} l8 ${barH + 12} M${bx + 4} ${barY - 6} l8 ${barH + 12}"/>`,
+        `<path class="tl-break" d="M${bx - 4} ${barY - 6} l8 ${barH + 12} M${bx + 4} ${barY - 6} l8 ${barH + 12}"/>`,
+      );
+    }
+
+    // Labels above the bar (segment name + duration), stacked when they would collide
+    const labels: { x: number; w: number; text: string; cls: string }[] = [];
+    if (connW > 0) labels.push({ x: x0, w: connW, text: `Connected ${approxDur(t.conn)}`, cls: 'tl-lab' });
+    if (actW > 0) labels.push({ x: actX, w: actW, text: `${t.activeLabel} ${approxDur(t.active)}`, cls: 'tl-lab tl-lab--accent' });
+    if (sleepW > 0 && (t.sleep > 0 || open))
+      labels.push({ x: sleepX + (split.broken ? 36 : 4), w: sleepW, text: `${t.sleepLabel}${open ? '' : ` ${approxDur(t.sleep)}`}`, cls: 'tl-lab' });
+    const rowEnd = [-Infinity, -Infinity];
+    labels.forEach((l) => {
+      let x = l.x + 2;
+      const tw = textW(l.text);
+      if (x + tw > W - pad) x = Math.max(pad, W - pad - tw);
+      const row = x >= rowEnd[0] + 6 ? 0 : 1;
+      rowEnd[row] = x + tw;
+      parts.push(`<text class="${l.cls}" x="${x}" y="${row === 0 ? barY - 8 : barY - 22}">${esc(l.text)}</text>`);
+    });
+
+    // Ticks below: 0, T3324 expiry, end of period
+    const ticks: { x: number; text: string; anchor: 'start' | 'middle' | 'end' }[] = [{ x: x0, text: '0', anchor: 'start' }];
+    if (t.sleep > 0 || open) ticks.push({ x: sleepX, text: t.activeLabel === 'Active Time' ? 'T3324 expires → PSM' : '', anchor: 'middle' });
+    ticks.push({ x: x0 + inner, text: t.endLabel, anchor: 'end' });
+    const tickY = barY + barH;
+    let lastEnd = -Infinity;
+    ticks.forEach((k, i) => {
+      parts.push(`<line class="tl-tick" x1="${k.x}" y1="${tickY}" x2="${k.x}" y2="${tickY + 6}"/>`);
+      if (!k.text) return;
+      const tw = textW(k.text, 11);
+      let start = k.anchor === 'start' ? k.x : k.anchor === 'end' ? k.x - tw : k.x - tw / 2;
+      start = Math.max(pad, Math.min(start, W - pad - tw));
+      const y = start < lastEnd + 6 && i > 0 ? tickY + 32 : tickY + 18;
+      if (y === tickY + 18) lastEnd = start + tw;
+      parts.push(`<text class="tl-tick-lab" x="${start}" y="${y}">${esc(k.text)}</text>`);
+    });
+
+    const H = tickY + 40;
+    const summary = `Timeline: ${connW > 0 ? `connected ${formatDuration(t.conn)}, ` : ''}${t.activeLabel.toLowerCase()} ${formatDuration(t.active)}, ${t.sleep > 0 || open ? `then ${t.sleepLabel.toLowerCase()}${open ? '' : ` ${approxDur(t.sleep)}`}` : 'no PSM'}.`;
+    tlBox.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(summary)}">${parts.join('')}</svg>`;
+
+    const cap: string[] = [];
+    if (split.broken && Number.isFinite(t.sleep) && t.sleep > 0 && left > 0) {
+      const ratio = sL / (sleepW / t.sleep);
+      cap.push(`Axis broken: the first ${formatDuration(left)} are drawn ${formatNumber(ratio, 3)}× larger than the PSM part.`);
+    } else if (open) cap.push('Axis broken: the sleep part has no fixed end.');
+    if (t.edrx && !drawPtw) cap.push('No paging window drawn: the eDRX cycle is longer than this part of the period.');
+    else if (t.edrx) {
+      cap.push(
+        t.edrx.ptw === null
+          ? `Ticks: paging occasions every ${t.edrx.cycle} s.`
+          : `Dark blocks: paging time windows (${t.edrx.ptw} s every ${t.edrx.cycle} s); the real offset within the cycle depends on the UE identity.`,
+      );
+    }
+    document.getElementById('timeline-cap')!.textContent = cap.join(' ');
+  }
+
+  new ResizeObserver(() => drawTimeline(lastTimeline)).observe(tlBox);
+
+  // ------------------------------------------------------------------ main update
+
+  function respDecoder(text: string) {
+    const out = document.getElementById('resp-out')!;
+    const lines = parseModemResponse(text);
+    if (text.trim() !== '' && lines.length === 0) {
+      out.innerHTML = '<p class="note note--warn">No +CEREG, +CEDRXP, +CEDRXRDP, +CEDRXS or +CPSMS lines found.</p>';
+      return;
+    }
+    const t = (d: TimerDecoded | null, label: string) =>
+      d ? `${label}: <code>${esc(d.bits)}</code> = ${esc(d.seconds === null ? 'deactivated' : formatDuration(d.seconds))}` : `${label}: not reported`;
+    const e = (mode: EdrxMode | null, code: number | null, label: string) => {
+      if (code === null) return `${label}: —`;
+      if (!mode) return `${label}: <code>${toBits(code, 4)}</code>`;
+      const d = decodeEdrx(mode, code);
+      return `${label}: <code>${d.bits}</code> = ${d.effective ? `${d.effective.seconds} s` : 'not used'}${d.status !== 'ok' ? ' (see note)' : ''}`;
+    };
+    out.innerHTML = lines
+      .map((l) => {
+        if (l.kind === 'error') return `<p class="note note--warn"><code>${esc(l.line)}</code><br>${esc(l.error)}</p>`;
+        if (l.kind === 'cereg') return `<p class="note note--ok"><strong>Granted</strong> — ${t(l.periodicTau, 'Periodic TAU')} · ${t(l.activeTime, 'Active Time')}</p>`;
+        if (l.kind === 'cpsms') return `<p class="note"><strong>Requested (not the grant)</strong> — ${t(l.periodicTau, 'Periodic TAU')} · ${t(l.activeTime, 'Active Time')}</p>`;
+        const rat = l.mode === 'wb' ? 'LTE-M' : l.mode === 'nb' ? 'NB-IoT' : `AcT ${l.act}`;
+        const ptw = l.ptw !== null && l.mode ? ` · PTW: <code>${toBits(l.ptw, 4)}</code> = ${ptwSeconds(l.mode, l.ptw)} s` : '';
+        return `<p class="note note--ok"><strong>${esc(l.command)} (${esc(rat)})</strong> — ${e(l.mode, l.requested, 'requested')} · ${e(l.mode, l.granted, 'network')}${ptw}</p>`;
+      })
+      .join('');
+  }
+
+  let rerun: () => void = () => {};
+
+  rerun = bindForm(
+    form,
+    (v) => {
+      toggleShow(v);
+      const mode = v.edrxMode as EdrxMode;
+      if (mode !== optionsMode) {
+        buildOptions(mode);
+        queueMicrotask(() => rerun());
+        return;
+      }
+
+      const psmOn = v.psm === '1';
+      const edrxOn = v.edrx === '1';
+      const tau = timer('t3412', 'tau', v);
+      const act = timer('t3324', 'act', v);
+      const ed = edrx(v);
+
+      // AT commands
+      const set: string[] = [];
+      if (psmOn || (edrxOn && ed.code !== null)) set.push('AT+CEREG=4');
+      if (psmOn) {
+        if (tau.byte !== null && act.byte !== null) set.push(cpsmsCommand(tau.byte, act.byte));
+      } else set.push(cpsmsDisableCommand());
+      if (edrxOn) {
+        if (ed.code !== null) set.push(cedrxsCommand(v.edrxUrc === '1', mode, ed.code));
+      } else set.push(cedrxsDisableCommand());
+      setResult('at-set', set.join('\n') || '—');
+      setResult('at-read', ['AT+CEREG?', ...(edrxOn ? ['AT+CEDRXRDP'] : [])].join('\n'));
+      setResult('at-off', `${cpsmsDisableCommand()}\n${cedrxsDisableCommand()}`);
+
+      respDecoder(v.resp ?? '');
+
+      // Timeline + energy
+      const warn: string[] = [];
+      const connS = parseNumber(v.connS);
+      const connMa = parseNumber(v.connMa);
+      const actMa = parseNumber(v.actMa);
+      const psmUa = parseNumber(v.psmUa);
+      setError('connS', connS === null || connS < 0 ? 'Connected time must be a number ≥ 0.' : null);
+      setError('connMa', connMa === null || connMa < 0 ? 'Current must be a number ≥ 0.' : null);
+      setError('actMa', actMa === null || actMa < 0 ? 'Current must be a number ≥ 0.' : null);
+      setError('psmUa', psmUa === null || psmUa < 0 ? 'Current must be a number ≥ 0.' : null);
+      const edrxTl = edrxOn && ed.cycle !== null ? { cycle: ed.cycle, ptw: ed.ptw } : null;
+      const conn = connS !== null && connS > 0 ? connS : 0;
+
+      let tl: Timeline | null = null;
+      let states: PsmState[] | null = null;
+      const link = document.getElementById('battery-link') as HTMLAnchorElement;
+
+      if (Number.isNaN(tau.seconds) || Number.isNaN(act.seconds)) {
+        tl = null;
+      } else if (!psmOn || act.seconds === null) {
+        // No PSM: idle (DRX/eDRX) all the time between connections.
+        // Show one T3412 period as entered (the network assigns the real one), else one hour.
+        const span = tau.seconds && Number.isFinite(tau.seconds) ? tau.seconds : 3600;
+        tl = { conn, active: span, activeLabel: 'Idle', sleep: 0, sleepLabel: '', endLabel: `${approxDur(conn + span)}`, edrx: edrxTl };
+        warn.push(
+          psmOn
+            ? 'Active Time is "deactivated": the UE may not use PSM and stays in idle mode, listening for paging.'
+            : 'PSM is off: the modem stays in idle mode between connections, listening for paging. The span shown is the T3412 entered above.',
+        );
+      } else if (tau.seconds === null || tau.seconds === 0) {
+        tl = { conn, active: act.seconds, activeLabel: 'Active Time', sleep: Infinity, sleepLabel: 'PSM until the next uplink', endLabel: 'no periodic TAU', edrx: edrxTl };
+        warn.push(
+          tau.seconds === 0
+            ? 'T3412 = 0: periodic TAU is deactivated, the modem sleeps until the application wakes it.'
+            : 'T3412 extended "deactivated" is not applicable: the network-assigned legacy T3412 applies instead.',
+        );
+      } else {
+        const a = Math.min(act.seconds, tau.seconds);
+        tl = {
+          conn,
+          active: a,
+          activeLabel: 'Active Time',
+          sleep: tau.seconds - a,
+          sleepLabel: 'PSM',
+          endLabel: `TAU after ${formatDuration(conn + tau.seconds)}`,
+          edrx: edrxTl,
+        };
+        if (act.seconds >= tau.seconds) warn.push('Active Time is not shorter than the TAU period: the modem never reaches PSM.');
+        if (edrxTl && edrxTl.cycle > a && a > 0)
+          warn.push(`The eDRX cycle (${edrxTl.cycle} s) is longer than the Active Time: the modem may enter PSM before its first paging window.`);
+        if (a === 0) warn.push('Active Time is zero: the modem enters PSM immediately and cannot be paged.');
+      }
+
+      if (tl && connMa !== null && actMa !== null && psmUa !== null && connMa >= 0 && actMa >= 0 && psmUa >= 0 && Number.isFinite(tl.sleep)) {
+        states = [
+          { label: 'Connected', currentMa: connMa, seconds: tl.conn },
+          { label: tl.activeLabel === 'Idle' ? 'Idle (no PSM)' : 'Active Time', currentMa: actMa, seconds: tl.active },
+          { label: 'PSM sleep', currentMa: psmUa / 1000, seconds: tl.sleep },
+        ].filter((s) => s.seconds > 0);
+      }
+      drawTimeline(tl);
+      document.getElementById('timeline-warn')!.innerHTML = warn.map((w) => `<p class="note note--warn">${esc(w)}</p>`).join('');
+
+      if (states && states.length) {
+        const T = states.reduce((s, x) => s + x.seconds, 0);
+        const q = states.reduce((s, x) => s + x.currentMa * x.seconds, 0); // mA·s
+        const avg = q / T;
+        setResult('avg', formatSI(avg / 1000, 'A', 4));
+        setResult('charge', `${formatNumber(q / 3.6, 4)} µAh`);
+        const psmS = states.find((s) => s.label === 'PSM sleep')?.seconds ?? 0;
+        setResult('psm-share', formatPercent(psmS / T, 5));
+        link.href = `${link.dataset.base}?states=${batteryStatesParam(states)}`;
+        link.removeAttribute('aria-disabled');
+      } else {
+        clearResults('avg', 'charge', 'psm-share');
+        link.href = link.dataset.base!;
+        link.setAttribute('aria-disabled', 'true');
+      }
+    },
+    { skipUrl: ['resp'] },
+  );
+</script>
+
+<style>
+  .sub {
+    font-size: var(--text-sm);
+    font-weight: 650;
+    margin: var(--s4) 0 var(--s1);
+  }
+  .panel > .sub:first-of-type {
+    margin-top: 0;
+  }
+  .notes :global(.note) {
+    margin: var(--s2) 0;
+  }
+  .at-grid {
+    display: grid;
+    gap: 0 var(--s4);
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+  }
+  .at-grid .help {
+    margin-top: 0;
+  }
+  textarea.mono {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    width: 100%;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    padding: var(--s2);
+    resize: vertical;
+  }
+  #resp-out :global(code) {
+    font-size: 0.85em;
+    overflow-wrap: anywhere;
+  }
+  .timeline {
+    width: 100%;
+    min-height: 6rem;
+    overflow: hidden;
+  }
+  .timeline :global(svg) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    font-family: var(--font-mono);
+  }
+  .timeline :global(.tl-conn) {
+    fill: var(--ink);
+  }
+  .timeline :global(.tl-active) {
+    fill: var(--accent-soft);
+    stroke: var(--accent);
+    stroke-width: 1;
+  }
+  .timeline :global(.tl-sleep) {
+    fill: var(--bg);
+    stroke: var(--rule);
+    stroke-width: 1;
+  }
+  .timeline :global(.tl-ptw) {
+    fill: var(--accent);
+  }
+  .timeline :global(.tl-ptw-dense) {
+    fill: var(--accent);
+    opacity: 0.45;
+  }
+  .timeline :global(.tl-open) {
+    fill: none;
+    stroke: var(--ink-muted);
+    stroke-width: 1.5;
+  }
+  .timeline :global(.tl-break) {
+    stroke: var(--ink-muted);
+    stroke-width: 1.25;
+    fill: none;
+  }
+  .timeline :global(.tl-break-gap) {
+    stroke: var(--surface);
+    stroke-width: 6;
+    fill: none;
+  }
+  .timeline :global(.tl-lab) {
+    font-size: 12px;
+    fill: var(--ink);
+  }
+  .timeline :global(.tl-lab--accent) {
+    fill: var(--accent);
+    font-weight: 600;
+  }
+  .timeline :global(.tl-tick) {
+    stroke: var(--ink-muted);
+  }
+  .timeline :global(.tl-tick-lab) {
+    font-size: 11px;
+    fill: var(--ink-muted);
+  }
+  #battery-link[aria-disabled='true'] {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+</style>

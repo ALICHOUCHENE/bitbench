@@ -1,0 +1,407 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import Segmented from '../../components/Segmented.astro';
+import Toggle from '../../components/Toggle.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  { title: 'RFC 4648 — The Base16, Base32, and Base64 Data Encodings', href: 'https://www.rfc-editor.org/rfc/rfc4648' },
+  { title: 'RFC 1700 / RFC 791 — network byte order is big-endian (most significant byte first)' },
+  {
+    title: 'GCC manual — Other Built-in Functions (__builtin_bswap16/32/64)',
+    href: 'https://gcc.gnu.org/onlinedocs/gcc/Byte-Swapping-Builtins.html',
+  },
+  {
+    title: 'Arm CMSIS-Core — intrinsic functions __REV, __REV16, __REVSH',
+    href: 'https://arm-software.github.io/CMSIS_6/latest/Core/group__intrinsic__CPU__gr.html',
+  },
+  { title: 'LoRa Alliance TS001 LoRaWAN L2 1.0.4 — §4 MAC message formats (multi-byte fields are little-endian)' },
+];
+
+const DUMP = `00000000  48 65 6c 6c 6f 2c 20 4c  6f 52 61 57 41 4e 21 0a  |Hello, LoRaWAN!.|
+00000010  de ad be ef                                       |....|`;
+const C_SRC = "static const uint8_t frame[] = { 0x01, 0x03, 0x00, 0x10, 'A', '\\n', 255, 012 };";
+---
+
+<ToolLayout slug="bytes" references={references}>
+  <form id="bytes-form" novalidate>
+    <!-- 1. Byte order of a value -->
+    <h2 class="sec-title" id="swap-title">Byte order of a value</h2>
+    <div class="tool-grid">
+      <section class="panel" aria-labelledby="swap-title">
+        <h3 class="panel-title">Input</h3>
+        <div class="fields fields--wide">
+          <NumberInput name="sv" label="Value" value="0x12345678" inputmode="text" help="Decimal, or 0x / 0b / 0o. Negative values use two’s complement." />
+          <Segmented
+            name="sw"
+            label="Width"
+            value="32"
+            options={[
+              { value: '16', label: '16-bit' },
+              { value: '32', label: '32-bit' },
+              { value: '64', label: '64-bit' },
+            ]}
+          />
+        </div>
+      </section>
+      <section class="panel" aria-label="Byte order results">
+        <h3 class="panel-title">Results</h3>
+        <dl class="results">
+          <ResultRow label="Byte-swapped" name="swapped" primary />
+          <ResultRow label="Byte-swapped (decimal)" name="swappedDec" />
+          <ResultRow label="Big-endian bytes (network order)" name="be" />
+          <ResultRow label="Little-endian bytes (Cortex-M, x86, RISC-V)" name="le" />
+        </dl>
+        <div class="table-wrap mem">
+          <table class="data">
+            <caption class="visually-hidden">How the value is laid out in memory</caption>
+            <thead><tr id="mem-head"><th scope="col">In memory at</th></tr></thead>
+            <tbody>
+              <tr id="mem-be"><th scope="row">Big-endian</th></tr>
+              <tr id="mem-le"><th scope="row">Little-endian</th></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+    <CodeOutput name="swapc" label="C" />
+
+    <!-- 2. Hex → C array -->
+    <h2 class="sec-title" id="h2c-title">Hex dump → C array</h2>
+    <div class="tool-grid">
+      <section class="panel" aria-labelledby="h2c-title">
+        <h3 class="panel-title">Input</h3>
+        <div class="field">
+          <label for="f-hexin">Hex bytes</label>
+          <textarea id="f-hexin" name="hexin" rows="6" spellcheck="false" autocomplete="off" aria-describedby="f-hexin-help f-hexin-err">{DUMP}</textarea>
+          <p class="help" id="f-hexin-help"> Any of <code>DE AD BE EF</code>, <code>deadbeef</code>, <code>0xDE,0xAD</code>, <code>de:ad:be:ef</code>, <code>\xde\xad</code>, or a dump from <code>xxd</code>, <code>hexdump -C</code>, <code>od -t x1</code> or Wireshark — offsets and the ASCII column are dropped. </p>
+          <p class="error" id="f-hexin-err" data-error-for="hexin" aria-live="polite"></p>
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <SelectInput
+            name="at"
+            label="Element type"
+            options={[
+              { value: 'uint8_t', label: 'uint8_t' },
+              { value: 'uint16_t', label: 'uint16_t' },
+              { value: 'uint32_t', label: 'uint32_t' },
+            ]}
+          />
+          <div data-when-wide>
+            <Segmented
+              name="ae"
+              label="Group bytes as"
+              options={[
+                { value: 'little', label: 'Little' },
+                { value: 'big', label: 'Big' },
+              ]}
+            />
+          </div>
+          <NumberInput name="apl" label="Items per line" value="8" inputmode="numeric" />
+          <NumberInput name="an" label="Array name" value="data" inputmode="text" />
+          <SelectInput
+            name="al"
+            label="Length"
+            options={[
+              { value: 'define', label: '#define NAME_LEN n' },
+              { value: 'sizeof', label: 'sizeof(a) / sizeof(a[0])' },
+            ]}
+          />
+        </div>
+        <div class="toggles">
+          <Toggle name="asc" label="static const" checked />
+          <Toggle name="aup" label="Uppercase hex" checked />
+        </div>
+      </section>
+      <section class="panel" aria-label="C array result">
+        <h3 class="panel-title">Result</h3>
+        <dl class="results">
+          <ResultRow label="Byte count" name="h2cCount" primary />
+          <ResultRow label="Base64" name="h2cB64" />
+          <ResultRow label="Hex (continuous)" name="h2cHex" />
+        </dl>
+        <p class="note" id="h2c-note" hidden></p>
+        <CodeOutput name="carray" label="C array" />
+      </section>
+    </div>
+
+    <!-- 3. C array → hex -->
+    <h2 class="sec-title" id="c2h-title">C array → hex</h2>
+    <div class="tool-grid">
+      <section class="panel" aria-labelledby="c2h-title">
+        <h3 class="panel-title">Input</h3>
+        <div class="field">
+          <label for="f-cin">C initializer</label>
+          <textarea id="f-cin" name="cin" rows="5" spellcheck="false" autocomplete="off" aria-describedby="f-cin-help f-cin-err">{C_SRC}</textarea>
+          <p class="help" id="f-cin-help"> Hex, decimal, octal (<code>012</code>), binary, char literals (<code>'A'</code>, <code>'\n'</code>, <code>'\x1B'</code>), negative numbers, string literals, casts and comments. </p>
+          <p class="error" id="f-cin-err" data-error-for="cin" aria-live="polite"></p>
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <SelectInput
+            name="ct"
+            label="Element size"
+            options={[
+              { value: '0', label: 'Auto (smallest that fits)' },
+              { value: '1', label: '8-bit' },
+              { value: '2', label: '16-bit' },
+              { value: '4', label: '32-bit' },
+            ]}
+          />
+          <Segmented
+            name="ce"
+            label="Wide elements stored"
+            options={[
+              { value: 'little', label: 'Little-endian' },
+              { value: 'big', label: 'Big-endian' },
+            ]}
+          />
+          <SelectInput
+            name="hf"
+            label="Output format"
+            options={[
+              { value: 'spaced', label: 'DE AD BE EF' },
+              { value: 'continuous', label: 'DEADBEEF' },
+              { value: 'c', label: '0xDE, 0xAD, …' },
+              { value: 'colon', label: 'DE:AD:BE:EF' },
+              { value: 'python', label: "Python b'\\xde…'" },
+            ]}
+          />
+        </div>
+        <div class="toggles">
+          <Toggle name="hu" label="Uppercase hex" checked />
+        </div>
+      </section>
+      <section class="panel" aria-label="Hex result">
+        <h3 class="panel-title">Result</h3>
+        <dl class="results">
+          <ResultRow label="Byte count" name="c2hCount" primary />
+          <ResultRow label="Element size" name="c2hSize" />
+          <ResultRow label="Base64" name="c2hB64" />
+        </dl>
+        <CodeOutput name="hexout" label="Hex" />
+      </section>
+    </div>
+
+    <!-- 4. Base64 -->
+    <h2 class="sec-title" id="b64-title">Base64 → hex</h2>
+    <div class="tool-grid">
+      <section class="panel" aria-labelledby="b64-title">
+        <h3 class="panel-title">Input</h3>
+        <div class="field">
+          <label for="f-b64">Base64 payload</label>
+          <textarea id="f-b64" name="b64" rows="3" spellcheck="false" autocomplete="off" aria-describedby="f-b64-help f-b64-err">AQMAEEEK/wo=</textarea>
+          <p class="help" id="f-b64-help"> E.g. <code>frm_payload</code> from The Things Stack or <code>data</code> from ChirpStack. URL-safe alphabet and missing padding are accepted. </p>
+          <p class="error" id="f-b64-err" data-error-for="b64" aria-live="polite"></p>
+        </div>
+      </section>
+      <section class="panel" aria-label="Decoded bytes">
+        <h3 class="panel-title">Decoded</h3>
+        <dl class="results">
+          <ResultRow label="Byte count" name="b64Count" primary />
+          <ResultRow label="Hex" name="b64Hex" />
+          <ResultRow label="As text" name="b64Text" help="printable ASCII, others shown as ." />
+        </dl>
+        <CodeOutput name="b64c" label="C array" />
+      </section>
+    </div>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>Byte swap (32-bit):  y = (x >> 24) | ((x >> 8) & 0xFF00) | ((x << 8) & 0xFF0000) | (x << 24)
+
+Big-endian:     address +0 holds the most significant byte
+Little-endian:  address +0 holds the least significant byte
+
+Base64: every 3 bytes (24 bits) → 4 characters of 6 bits from
+        A–Z a–z 0–9 + /    ('=' pads the last group; output is ⌈n/3⌉·4 characters)</pre>
+    <p> Hex dumps are recognised by their offset column: either every line starts with <code>offset:</code> (xxd), or the offsets increase by exactly the number of bytes on each line (hexdump -C, od, Wireshark). The ASCII column is dropped when it is delimited by <code>|…|</code> or <code>&gt;…&lt;</code>, or when it matches the printable rendering of the bytes before it. Plain <code>hexdump</code> without <code>-C</code> prints 16-bit words in host (little-endian) order; use <code>hexdump -C</code> or <code>xxd</code> for byte order you can trust. </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Endianness in practice</h2>
+    <p> Byte order only matters when a multi-byte value crosses a boundary: a byte buffer, a radio payload, a file, a peripheral FIFO or another CPU. Cortex-M, x86, ESP32 and RISC-V are little-endian, so <code>0x12345678</code> sits in memory as <code>78 56 34 12</code>. Network protocols (IP, TCP, MQTT’s length-prefixed strings, Modbus registers) send the most significant byte first. LoRaWAN is mixed: MAC-layer fields such as DevAddr and FCnt are little-endian, while application payloads are whatever your codec says — Cayenne LPP, for one, is big-endian. </p>
+    <p> The safest way to read a field from a buffer is the shift-and-OR loader in the C output above: it is correct on any CPU and never performs a misaligned access. Casting <code>(uint32_t *)&amp;buf[3]</code> both assumes the host’s byte order and can fault on Cortex-M0 (no unaligned access) or break strict aliasing. Compilers recognise the loader pattern and emit a single load (plus <code>REV</code> when the order differs), so there is no speed penalty. </p>
+
+    <h2>From a hex dump to a C array</h2>
+    <p> Paste bytes straight from a logic analyser export, a serial terminal, <code>xxd</code> or Wireshark’s “Copy as Hex Dump” and get an initializer ready for a unit test or a lookup table. Choose <code>uint16_t</code> or <code>uint32_t</code> elements to group bytes into words, and pick the byte order those words had in the original stream. A trailing partial word is padded with zero bytes and flagged. </p>
+
+    <h2>Why Base64 shows up in IoT debugging</h2>
+    <p> JSON cannot carry raw bytes, so network servers wrap payloads in Base64. The Things Stack puts uplinks in <code>uplink_message.frm_payload</code> and expects downlinks the same way; ChirpStack uses <code>data</code>; AWS IoT and Azure IoT Hub do the same when a binary MQTT payload is shown in a JSON envelope. Every 3 bytes become 4 characters, so a 51-byte LoRaWAN payload is 68 characters. Paste the string into the Base64 box to see the bytes, or copy the Base64 of an array to schedule a downlink. If a decoded payload looks scrambled, check that the console isn’t showing hex already — <code>AQID</code> and <code>010203</code> are the same three bytes. </p>
+    <p> Related: the <a href={toolUrl('binary')}>Binary / Hex toolkit</a> for bit fields and masks, and the <a href={toolUrl('crc')}>CRC calculator</a> for checksumming the bytes you just extracted. </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, setError, setResult } from '../../scripts/tool-client';
+  import type { Values } from '../../lib/url-state';
+  import { isCIdentifier, parseOperand, type Width } from '../../lib/binary';
+  import {
+    base64Decode,
+    base64Encode,
+    ELEMENT_SIZE,
+    byteSwap,
+    formatHexBytes,
+    hexByte,
+    parseCArray,
+    parseHexBytes,
+    swapCode,
+    toBytes,
+    toCArray,
+    type ElementType,
+    type Endian,
+    type HexStyle,
+  } from '../../lib/bytes';
+
+  const printable = (bytes: number[]) => bytes.map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : '.')).join('');
+
+  function swapSection(v: Values): void {
+    const width = (['16', '32', '64'].includes(v.sw) ? Number(v.sw) : 32) as 16 | 32 | 64;
+    const r = parseOperand(v.sv, width as Width);
+    const n = width / 8;
+    const head = document.getElementById('mem-head')!;
+    head.innerHTML = '<th scope="col">In memory at</th>' + Array.from({ length: n }, (_, i) => `<th scope="col" class="num">+${i}</th>`).join('');
+    if (setError('sv', r.ok ? null : r.error) || !r.ok) {
+      clearResults('swapped', 'swappedDec', 'be', 'le', 'swapc');
+      for (const id of ['mem-be', 'mem-le']) document.getElementById(id)!.querySelectorAll('td').forEach((td) => td.remove());
+      return;
+    }
+    const x = r.value;
+    const y = byteSwap(x, width);
+    setResult('swapped', `0x${y.toString(16).toUpperCase().padStart(n * 2, '0')}`);
+    setResult('swappedDec', y.toString());
+    const be = toBytes(x, width, 'big');
+    const le = toBytes(x, width, 'little');
+    setResult('be', formatHexBytes(be, 'spaced'));
+    setResult('le', formatHexBytes(le, 'spaced'));
+    const row = (id: string, label: string, bytes: number[]) => {
+      document.getElementById(id)!.innerHTML =
+        `<th scope="row">${label}</th>` + bytes.map((b) => `<td class="num">${hexByte(b)}</td>`).join('');
+    };
+    row('mem-be', 'Big-endian', be);
+    row('mem-le', 'Little-endian', le);
+    setResult('swapc', swapCode(x, width));
+  }
+
+  function hexToC(v: Values): void {
+    const type = (['uint8_t', 'uint16_t', 'uint32_t'].includes(v.at) ? v.at : 'uint8_t') as ElementType;
+    document.querySelectorAll<HTMLElement>('[data-when-wide]').forEach((el) => (el.hidden = type === 'uint8_t'));
+    const parsed = parseHexBytes(v.hexin);
+    setError('hexin', parsed.ok ? null : parsed.error);
+    const per = Number(v.apl);
+    const perOk = Number.isInteger(per) && per >= 1 && per <= 64;
+    setError('apl', perOk ? null : 'Items per line must be a whole number from 1 to 64.');
+    const name = v.an.trim();
+    const nameOk = isCIdentifier(name);
+    setError('an', nameOk ? null : 'Array name must be a C identifier, e.g. data or lut_crc8.');
+    const note = document.getElementById('h2c-note')!;
+    if (!parsed.ok || !perOk || !nameOk) {
+      note.hidden = true;
+      return clearResults('h2cCount', 'h2cB64', 'h2cHex', 'carray');
+    }
+    const { bytes, dump } = parsed.value;
+    setResult('h2cCount', `${bytes.length} byte${bytes.length === 1 ? '' : 's'}`);
+    setResult('h2cB64', bytes.length ? base64Encode(bytes) : '—');
+    setResult('h2cHex', bytes.length ? formatHexBytes(bytes, 'continuous', v.aup === '1') : '—');
+    if (bytes.length === 0) {
+      note.hidden = true;
+      return clearResults('carray');
+    }
+    const res = toCArray(bytes, {
+      type,
+      endian: v.ae as Endian,
+      perLine: per,
+      name,
+      staticConst: v.asc === '1',
+      upper: v.aup === '1',
+      length: v.al === 'sizeof' ? 'sizeof' : 'define',
+    });
+    setResult('carray', res.code);
+    const notes: string[] = [];
+    if (dump) notes.push('Recognised a hex dump: offsets and the ASCII column were ignored.');
+    if (res.padded) {
+      notes.push(
+        `${bytes.length} bytes is not a multiple of ${ELEMENT_SIZE[type]}: the last element was padded with ${res.padded} zero byte${res.padded > 1 ? 's' : ''}.`,
+      );
+    }
+    note.textContent = notes.join(' ');
+    note.className = res.padded ? 'note note--warn' : 'note';
+    note.hidden = notes.length === 0;
+  }
+
+  function cToHex(v: Values): void {
+    const size = ['0', '1', '2', '4'].includes(v.ct) ? Number(v.ct) : 0;
+    const r = parseCArray(v.cin, size, v.ce as Endian);
+    setError('cin', r.ok ? null : r.error);
+    if (!r.ok) return clearResults('c2hCount', 'c2hSize', 'c2hB64', 'hexout');
+    const { bytes, size: sz, values } = r.value;
+    setResult('c2hCount', `${bytes.length} byte${bytes.length === 1 ? '' : 's'}`);
+    setResult('c2hSize', `${sz * 8}-bit × ${values.length}`);
+    setResult('c2hB64', bytes.length ? base64Encode(bytes) : '—');
+    setResult('hexout', bytes.length ? formatHexBytes(bytes, v.hf as HexStyle, v.hu === '1') : '—');
+  }
+
+  function b64Section(v: Values): void {
+    const r = base64Decode(v.b64);
+    setError('b64', r.ok ? null : r.error);
+    if (!r.ok) return clearResults('b64Count', 'b64Hex', 'b64Text', 'b64c');
+    const bytes = r.value;
+    setResult('b64Count', `${bytes.length} byte${bytes.length === 1 ? '' : 's'}`);
+    setResult('b64Hex', bytes.length ? formatHexBytes(bytes, 'spaced') : '—');
+    setResult('b64Text', bytes.length ? printable(bytes) : '—');
+    setResult(
+      'b64c',
+      bytes.length
+        ? toCArray(bytes, { type: 'uint8_t', endian: 'little', perLine: 8, name: 'payload', staticConst: true, upper: true, length: 'define' }).code
+        : '—',
+    );
+  }
+
+  bindForm(
+    'bytes-form',
+    (v) => {
+      swapSection(v);
+      hexToC(v);
+      cToHex(v);
+      b64Section(v);
+    },
+    { skipUrl: ['hexin', 'cin', 'b64'] },
+  );
+</script>
+
+<style>
+  .sec-title {
+    margin-top: var(--s6);
+    padding-top: var(--s4);
+    border-top: 1px solid var(--rule);
+  }
+  form > .sec-title:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 var(--s5);
+    margin-top: var(--s2);
+  }
+  .mem {
+    margin-top: var(--s3);
+  }
+  .mem th[scope='row'] {
+    position: static;
+    background: transparent;
+    color: var(--ink-muted);
+    font-weight: 600;
+  }
+  textarea {
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+  }
+</style>

@@ -1,0 +1,463 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import Toggle from '../../components/Toggle.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { CRC_PRESETS, toHex } from '../../lib/crc';
+import { toolUrl } from '../../utils/paths';
+
+const DEFAULT = 'CRC-32/ISO-HDLC';
+const def = CRC_PRESETS.find((p) => p.name === DEFAULT)!;
+const groups = [...new Set(CRC_PRESETS.map((p) => p.width))].map((w) => ({
+  width: w,
+  presets: CRC_PRESETS.filter((p) => p.width === w),
+}));
+
+const references = [
+  {
+    title: 'Greg Cook, Catalogue of parametrised CRC algorithms (reveng)',
+    href: 'https://reveng.sourceforge.io/crc-catalogue/all.htm',
+    note: 'source of every preset and check value on this page',
+  },
+  {
+    title: 'Ross N. Williams, A Painless Guide to CRC Error Detection Algorithms (1993)',
+    href: 'https://ross.net/crc/download/crc_v3.txt',
+    note: 'the Rocksoft parameter model used here',
+  },
+  { title: 'Modbus over Serial Line Specification and Implementation Guide V1.02, §6.2.2 (CRC generation)', href: 'https://www.modbus.org/docs/Modbus_over_serial_line_V1_02.pdf' },
+  { title: 'P. Koopman, CRC Polynomial Zoo — Hamming distance by data length', href: 'https://users.ece.cmu.edu/~koopman/crc/' },
+];
+---
+
+<ToolLayout slug="crc" references={references}>
+  <div class="tool-grid">
+    <form id="crc-form" class="panel" novalidate>
+      <h2 class="panel-title">Data</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="fmt"
+          label="Input format"
+          value="text"
+          options={[
+            { value: 'text', label: 'Text (UTF-8)' },
+            { value: 'hex', label: 'Hex bytes' },
+          ]}
+        />
+        <div class="field">
+          <label for="f-data">Input</label>
+          <textarea id="f-data" name="data" rows="4" spellcheck="false" autocomplete="off" aria-describedby="f-data-help f-data-err">123456789</textarea>
+          <p class="help" id="f-data-help" data-help-for="data">Hex accepts <code>01 02 0A</code>, <code>01020A</code>, <code>01:02:0a</code>, <code>0x01, 0x02</code> or a C array.</p>
+          <p class="error" id="f-data-err" data-error-for="data" aria-live="polite"></p>
+        </div>
+        <div data-when-fmt="text"><Toggle name="esc" label="Interpret C escapes (\r \n \t \0 \\ \xHH)" /></div>
+      </div>
+
+      <h2 class="panel-title section-gap">Algorithm</h2>
+      <div class="fields fields--wide">
+        <div class="field">
+          <label for="f-preset">Preset (reveng catalogue name)</label>
+          <div class="field-control">
+            <select id="f-preset" name="preset">
+              <option value="custom">Custom parameters</option>
+              {
+                groups.map((g) => (
+                  <optgroup label={`${g.width}-bit`}>
+                    {g.presets.map((p) => (
+                      <option value={p.name} selected={p.name === DEFAULT}>
+                        {p.name}
+                        {p.aliases.length ? ` (${p.aliases.slice(0, 2).join(', ')})` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))
+              }
+            </select>
+          </div>
+          <p class="help" id="preset-usage"></p>
+        </div>
+      </div>
+      <div class="fields params" style="margin-top: var(--s3)">
+        <NumberInput name="width" label="Width (bits)" value={def.width} inputmode="numeric" help="1 to 64" />
+        <NumberInput name="poly" label="Poly (normal form)" value={toHex(def.poly, def.width)} inputmode="text" help="Top bit implicit" />
+        <NumberInput name="init" label="Init" value={toHex(def.init, def.width)} inputmode="text" />
+        <NumberInput name="xorout" label="XorOut" value={toHex(def.xorout, def.width)} inputmode="text" />
+        <Toggle name="refin" label="RefIn (reflect input bytes)" checked={def.refin} />
+        <Toggle name="refout" label="RefOut (reflect result)" checked={def.refout} />
+      </div>
+
+      <h2 class="panel-title section-gap">Identify</h2>
+      <div class="fields">
+        <NumberInput name="expect" label="Expected CRC (optional)" inputmode="text" placeholder="e.g. 0x4B37" help="Matching presets are highlighted below" />
+      </div>
+    </form>
+
+    <section class="panel" aria-labelledby="crc-results">
+      <h2 class="panel-title" id="crc-results">Result</h2>
+      <dl class="results">
+        <ResultRow label="CRC (hex)" name="hex" primary />
+        <ResultRow label="Decimal" name="dec" />
+        <ResultRow label="Binary" name="bin" />
+        <ResultRow label="Bytes, MSB first (big-endian)" name="be" help="Append in this order for XMODEM, CCITT-FALSE, MPEG-2" />
+        <ResultRow label="Bytes, LSB first (little-endian)" name="le" help="Append in this order for Modbus RTU, CRC-32 / Ethernet" />
+        <ResultRow label="Input length" name="len" unit="bytes" />
+        <ResultRow label='Check: CRC of "123456789"' name="check" />
+      </dl>
+      <p class="note" id="order-note">—</p>
+      <p class="note note--warn" id="crc-warn" hidden></p>
+      <p class="note note--ok" id="match-note" hidden></p>
+    </section>
+  </div>
+
+  <section class="section" aria-labelledby="all-title">
+    <h2 id="all-title">This input under every preset</h2>
+    <p class="help">
+      Paste a frame without its CRC and type the CRC you observed into "Expected CRC": matching algorithms are highlighted
+      (also when the CRC was read with its bytes swapped). Click a name to load that preset.
+    </p>
+    <div class="table-wrap">
+      <table class="data" id="all-table">
+        <thead>
+          <tr>
+            <th scope="col">Algorithm</th>
+            <th scope="col" class="num">CRC</th>
+            <th scope="col" class="num">Poly</th>
+            <th scope="col" class="num">Init</th>
+            <th scope="col">Ref in/out</th>
+            <th scope="col" class="num">XorOut</th>
+            <th scope="col" class="num">Check</th>
+            <th scope="col">Typical use</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="code-title">
+    <h2 id="code-title">C implementation</h2>
+    <p class="help">
+      256-entry lookup table for the current parameters plus a byte-at-a-time function. Compiles cleanly with
+      <code>gcc -std=c99 -Wall -Wextra -Wconversion</code>; the table costs 256 × the CRC type size in flash.
+    </p>
+    <CodeOutput name="ccode" label="crc.c" />
+  </section>
+
+  <Fragment slot="formula">
+    <p>
+      The engine implements the Rocksoft / Williams model that the reveng catalogue uses. For each input byte (reflected
+      bit-wise first when <code>RefIn</code> is set), each bit is shifted into a <code>Width</code>-bit register MSB first:
+    </p>
+    <pre>reg = Init
+for each bit b of the message:
+    top = msb(reg) XOR b
+    reg = (reg &lt;&lt; 1) &amp; mask
+    if top: reg = reg XOR Poly
+if RefOut: reg = reflect(reg, Width)
+CRC = reg XOR XorOut</pre>
+    <p>
+      The lookup table precomputes those eight shift-and-XOR steps for every possible byte. When <code>RefIn</code> is
+      set, the generated code keeps the register reflected (LSB first), uses the reflected polynomial (0x04C11DB7 →
+      0xEDB88320) and shifts right, which avoids reflecting every byte. Both paths are cross-checked against the bit-wise
+      reference in the test suite, and every preset is checked against its catalogue <em>check</em> value, the CRC of the
+      nine ASCII bytes "123456789". Arithmetic uses BigInt, so widths up to 64 bits are exact.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Getting a CRC to match the other side</h2>
+    <p>
+      "CRC-16" is not one algorithm. A CRC is fully described by five parameters besides its width: the polynomial, the
+      initial register value, whether input bytes are reflected (processed LSB first), whether the final register is
+      reflected, and a value XORed onto the result. Poly 0x1021 alone gives at least seven different, incompatible
+      catalogue CRCs (XMODEM, IBM-3740 a.k.a. CCITT-FALSE, KERMIT, X-25, MCRF4XX, GENIBUS, SPI-FUJITSU). When a
+      datasheet says just "CRC-16-CCITT", check its example or test vector; the presets above use the unambiguous reveng
+      names, with the common aliases in brackets.
+    </p>
+    <h3>Identifying an unknown CRC</h3>
+    <p>
+      If you have a captured frame and its CRC but no specification, paste the frame without the CRC bytes, choose "Hex
+      bytes" and enter the observed CRC as the expected value. The table computes the CRC of your data under every preset
+      and highlights the ones that match, including byte-swapped matches (a sign the CRC was transmitted LSB first). Use
+      two or three different frames to rule out coincidences, which are likely with 8-bit CRCs. If nothing matches, the
+      CRC may cover a header you left out, include a length byte, or use a non-standard init; the reveng command-line tool
+      can then search the parameters from several frames.
+    </p>
+    <h3>Byte order when appending the CRC</h3>
+    <p>
+      The CRC value is a number; the frame carries bytes. Reflected CRCs such as Modbus RTU and CRC-32 (Ethernet, zlib)
+      are normally sent least-significant byte first, so Modbus "read holding register" <code>01 03 00 00 00 01</code>
+      has CRC 0x0A84 and is sent as <code>84 0A</code>. Non-reflected CRCs such as XMODEM and CCITT-FALSE are usually
+      sent most-significant byte first. Both byte orders are shown above. A useful self-test: for CRCs with XorOut = 0,
+      running the receiver's CRC over data plus correctly appended CRC gives 0.
+    </p>
+    <h3>Firmware tips</h3>
+    <ul>
+      <li>
+        The table-driven code is about 8× faster than bit-wise code at the cost of 256, 512 or 1024 bytes of flash. A
+        16-entry nibble table is a good compromise on small parts.
+      </li>
+      <li>
+        Many MCUs have a hardware CRC unit. The STM32 CRC peripheral defaults to the CRC-32/MPEG-2 parameters (poly
+        0x04C11DB7, init 0xFFFFFFFF, no reflection, no final XOR) on 32-bit words; newer families can reflect input and
+        output to produce the standard CRC-32.
+      </li>
+      <li>
+        Pick a CRC by the protection you need, not by habit: Koopman's tables list the Hamming distance each polynomial
+        achieves for a given data length. CRC-32C (Castagnoli) detects more error patterns than the classic CRC-32 for
+        typical packet sizes and has instruction support on x86 and ARMv8.
+      </li>
+      <li>
+        If you also need to look at the bytes of a frame or convert between hex dumps and C arrays, the
+        <a href={toolUrl('bytes')}>byte and endianness tool</a> helps.
+      </li>
+    </ul>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, esc, setError, setResult, show } from '../../scripts/tool-client';
+  import {
+    CRC_PRESETS,
+    byteSwap,
+    crc,
+    crcBytesBE,
+    crcBytesLE,
+    findPreset,
+    generateC,
+    parseHexBytes,
+    parseHexValue,
+    textBytes,
+    toHex,
+    validateParams,
+    type CrcParams,
+  } from '../../lib/crc';
+
+  const form = document.getElementById('crc-form') as HTMLFormElement;
+  const el = <T extends HTMLElement>(name: string) => form.elements.namedItem(name) as unknown as T;
+  const preset = el<HTMLSelectElement>('preset');
+  const PARAM_FIELDS = ['width', 'poly', 'init', 'xorout', 'refin', 'refout'];
+  const CHECK = new TextEncoder().encode('123456789');
+  const TABLE_LIMIT = 8 * 1024;
+
+  function fillFromPreset(name: string): void {
+    const p = findPreset(name);
+    if (!p) return;
+    el<HTMLInputElement>('width').value = String(p.width);
+    el<HTMLInputElement>('poly').value = toHex(p.poly, p.width);
+    el<HTMLInputElement>('init').value = toHex(p.init, p.width);
+    el<HTMLInputElement>('xorout').value = toHex(p.xorout, p.width);
+    el<HTMLInputElement>('refin').checked = p.refin;
+    el<HTMLInputElement>('refout').checked = p.refout;
+  }
+
+  // Element listeners run before bindForm's form-level listener, so the recompute sees the update.
+  preset.addEventListener('change', () => fillFromPreset(preset.value));
+  for (const name of PARAM_FIELDS) {
+    const field = el<HTMLInputElement>(name);
+    field.addEventListener(field.type === 'checkbox' ? 'change' : 'input', () => {
+      preset.value = 'custom';
+    });
+  }
+
+  const bytesHex = (b: number[]) => b.map((x) => x.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+  const same = (a: CrcParams, b: CrcParams) =>
+    a.width === b.width && a.poly === b.poly && a.init === b.init && a.refin === b.refin && a.refout === b.refout && a.xorout === b.xorout;
+
+  function readParams(v: Record<string, string>): CrcParams | null {
+    let ok = true;
+    const width = Number(v.width.trim());
+    if (!/^\d+$/.test(v.width.trim()) || width < 1 || width > 64) {
+      setError('width', 'Width must be a whole number from 1 to 64.');
+      ok = false;
+    } else setError('width', null);
+    const hexField = (name: string, label: string): bigint => {
+      const val = parseHexValue(v[name]);
+      if (val === null) {
+        setError(name, `${label} must be hex, e.g. 0x1021.`);
+        ok = false;
+        return 0n;
+      }
+      if (ok && val >= 1n << BigInt(width)) {
+        setError(name, `${label} ${toHex(val, 4)} does not fit in ${width} bits.`);
+        ok = false;
+        return 0n;
+      }
+      setError(name, null);
+      return val;
+    };
+    const poly = hexField('poly', 'Poly');
+    const init = hexField('init', 'Init');
+    const xorout = hexField('xorout', 'XorOut');
+    if (!ok) return null;
+    const c: CrcParams = { width, poly, init, xorout, refin: v.refin === '1', refout: v.refout === '1' };
+    try {
+      validateParams(c);
+    } catch (e) {
+      setError('poly', (e as Error).message);
+      return null;
+    }
+    return c;
+  }
+
+  function renderTable(data: Uint8Array | null, expected: bigint | null, current: string): string[] {
+    const tbody = document.querySelector('#all-table tbody')!;
+    const matches: string[] = [];
+    tbody.innerHTML = CRC_PRESETS.map((p) => {
+      let value = '—';
+      let badge = '';
+      let hit = false;
+      if (data) {
+        const v = crc(p, data);
+        value = toHex(v, p.width);
+        if (expected !== null) {
+          if (v === expected) {
+            hit = true;
+            badge = ' <span class="badge badge--ok">match</span>';
+            matches.push(p.name);
+          } else if (p.width > 8 && p.width % 8 === 0 && byteSwap(v, p.width) === expected) {
+            hit = true;
+            badge = ' <span class="badge badge--warn">byte-swapped</span>';
+            matches.push(`${p.name} (bytes swapped)`);
+          }
+        }
+      }
+      const alias = p.aliases.length ? `<br><span class="alias">${esc(p.aliases.slice(0, 3).join(', '))}</span>` : '';
+      const nameCell = `<button type="button" class="linkish${p.name === current ? ' is-selected' : ''}" data-preset="${esc(p.name)}">${esc(p.name)}</button>${alias}`;
+      return `<tr${hit ? ' class="is-current"' : ''}>
+        <td>${nameCell}</td>
+        <td class="num">${value}${badge}</td>
+        <td class="num">${toHex(p.poly, p.width)}</td>
+        <td class="num">${toHex(p.init, p.width)}</td>
+        <td>${p.refin ? 'yes' : 'no'} / ${p.refout ? 'yes' : 'no'}</td>
+        <td class="num">${toHex(p.xorout, p.width)}</td>
+        <td class="num">${toHex(p.check, p.width)}</td>
+        <td>${esc(p.usage)}</td>
+      </tr>`;
+    }).join('');
+    return matches;
+  }
+
+  const run = bindForm('crc-form', (v) => {
+    document.querySelectorAll<HTMLElement>('[data-when-fmt]').forEach((x) => (x.hidden = x.dataset.whenFmt !== v.fmt));
+    const help = document.querySelector<HTMLElement>('[data-help-for="data"]');
+    if (help) help.hidden = v.fmt !== 'hex';
+
+    // A preset in the URL wins over stale parameter fields.
+    if (v.preset !== 'custom') {
+      const p = findPreset(v.preset);
+      if (p) {
+        fillFromPreset(p.name);
+        v.width = String(p.width);
+        v.poly = toHex(p.poly, p.width);
+        v.init = toHex(p.init, p.width);
+        v.xorout = toHex(p.xorout, p.width);
+        v.refin = p.refin ? '1' : '0';
+        v.refout = p.refout ? '1' : '0';
+      }
+    }
+    const usage = document.getElementById('preset-usage')!;
+    const sel = findPreset(v.preset);
+    usage.textContent = sel ? `${sel.usage}.${sel.aliases.length ? ` Also known as ${sel.aliases.join(', ')}.` : ''}` : 'Enter the five Rocksoft parameters below.';
+
+    const parsed = v.fmt === 'hex' ? parseHexBytes(v.data) : textBytes(v.data, v.esc === '1');
+    let data: Uint8Array | null = null;
+    if (!parsed.ok) setError('data', parsed.error);
+    else {
+      setError('data', null);
+      data = parsed.bytes;
+    }
+
+    let expected: bigint | null = null;
+    if (v.expect.trim() !== '') {
+      expected = parseHexValue(v.expect);
+      setError('expect', expected === null ? 'Expected CRC must be hex, e.g. 0x4B37 or CBF43926.' : null);
+    } else setError('expect', null);
+
+    const c = readParams(v);
+    if (c && v.preset === 'custom') {
+      const match = CRC_PRESETS.find((p) => same(p, c));
+      if (match) usage.textContent = `These parameters are ${match.name}.`;
+    }
+
+    const big = data !== null && data.length > TABLE_LIMIT;
+    const warn = document.getElementById('crc-warn')!;
+    warn.textContent = big ? `Input is ${data!.length} bytes; the all-presets table is skipped above ${TABLE_LIMIT / 1024} KiB to keep typing responsive.` : '';
+    show('crc-warn', big);
+    const matches = renderTable(big ? null : data, expected, c && v.preset !== 'custom' ? v.preset : '');
+    const mn = document.getElementById('match-note')!;
+    const expHex = expected === null ? '' : `0x${expected.toString(16).toUpperCase().padStart(2, '0').padStart(expected.toString(16).length + (expected.toString(16).length % 2), '0')}`;
+    if (expected !== null && data && !big) {
+      mn.className = matches.length ? 'note note--ok' : 'note note--warn';
+      mn.textContent = matches.length
+        ? `Expected ${expHex} matches: ${matches.join(', ')}.`
+        : `No preset gives ${expHex} for this input. Check that the CRC bytes are not included in the data and that the CRC covers the whole frame.`;
+      show('match-note', true);
+    } else show('match-note', false);
+
+    if (!c) {
+      clearResults('hex', 'dec', 'bin', 'be', 'le', 'check', 'ccode');
+      setResult('len', data ? String(data.length) : '—');
+      return;
+    }
+    setResult('check', toHex(crc(c, CHECK), c.width));
+    const name = v.preset !== 'custom' ? v.preset : `CRC-${c.width}/custom`;
+    setResult('ccode', generateC(c, name));
+    const order = document.getElementById('order-note')!;
+    order.textContent = c.refout
+      ? 'Reflected CRCs (RefOut) are usually transmitted LSB first: append the little-endian bytes.'
+      : 'Non-reflected CRCs are usually transmitted MSB first: append the big-endian bytes.';
+    if (c.width % 8 !== 0) order.textContent += ` A ${c.width}-bit CRC is shown padded to ${Math.ceil(c.width / 8)} byte(s).`;
+
+    if (!data) return clearResults('hex', 'dec', 'bin', 'be', 'le', 'len');
+    const r = crc(c, data);
+    setResult('hex', toHex(r, c.width));
+    setResult('dec', r.toString());
+    setResult('bin', r.toString(2).padStart(c.width, '0').replace(/\B(?=(\d{4})+(?!\d))/g, ' '));
+    setResult('be', bytesHex(crcBytesBE(r, c.width)));
+    setResult('le', bytesHex(crcBytesLE(r, c.width)));
+    setResult('len', String(data.length));
+  });
+
+  document.getElementById('all-table')!.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-preset]');
+    if (!btn) return;
+    preset.value = btn.dataset.preset!;
+    fillFromPreset(preset.value);
+    run();
+    preset.focus();
+  });
+</script>
+
+<style>
+  .section-gap {
+    margin-top: var(--s5);
+  }
+  #all-table :global(.alias) {
+    color: var(--ink-muted);
+    font-size: 0.75rem;
+  }
+  #all-table :global(.linkish) {
+    font: inherit;
+    font-weight: 600;
+    color: var(--accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+  }
+  #all-table :global(.linkish.is-selected) {
+    color: var(--ink);
+    text-decoration: none;
+  }
+  #all-table :global(.linkish.is-selected)::before {
+    content: '▸ ';
+  }
+  #all-table :global(.badge) {
+    margin-left: var(--s1);
+    font-family: var(--font-text);
+  }
+</style>

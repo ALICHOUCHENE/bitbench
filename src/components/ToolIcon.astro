@@ -1,0 +1,149 @@
+---
+// One line-icon per tool (24×24, stroke = currentColor). Unknown slugs fall back to a generic chip.
+interface Props {
+  slug: string;
+  size?: number;
+}
+
+const { slug, size = 20 } = Astro.props;
+---
+
+<svg
+  viewBox="0 0 24 24"
+  width={size}
+  height={size}
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.7"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  {
+    slug === 'psm-edrx' ? (
+      <>
+        <path d="M4 20v-3M8 20v-6M12 20v-9" />
+        <path d="M19.5 4.5a4 4 0 1 0 0 7 4.5 4.5 0 0 1 0-7z" />
+      </>
+    ) : slug === 'lte-power' ? (
+      <>
+        <path d="M4 20v-3M8 20v-6M12 20v-9" />
+        <rect x="15" y="7" width="6" height="13" rx="1.5" />
+        <path d="M17 4.5h2M18 15.5v-5" />
+      </>
+    ) : slug === 'at-decoder' ? (
+      <>
+        <rect x="3" y="4.5" width="18" height="15" rx="2" />
+        <path d="m7 10 2.5 2L7 14M12 14h5" />
+      </>
+    ) : slug === 'lora-toa' ? (
+      <>
+        <circle cx="12" cy="13.5" r="7" />
+        <path d="M12 9.5v4l2.5 1.5M10 3h4M18.5 6.5 20 5" />
+      </>
+    ) : slug === 'lora-link' ? (
+      <>
+        <path d="M4 20v-8M4 12l-2.5-4h5z" />
+        <path d="M20 20v-8M20 12l-2.5-4h5z" />
+        <path d="M8 9.5a6 6 0 0 1 8 0M10 12a3 3 0 0 1 4 0" />
+      </>
+    ) : slug === 'mcu-timer' ? (
+      <>
+        <path d="M2.5 16h3V8h4v8h4V8h4v8h4" />
+        <path d="M2.5 20h19" opacity="0.4" />
+      </>
+    ) : slug === 'uart-baud' ? (
+      <>
+        <path d="M3 8h14l-3-3M21 16H7l3 3" />
+      </>
+    ) : slug === 'spi-timing' ? (
+      <>
+        <path d="M3 7h2.5V4h3v3h3V4h3v3h3V4h3" />
+        <path d="M3 13h5l1.5-2h5l1.5 2h5M3 19h5l1.5-2h5l1.5 2h5" opacity="0.7" />
+      </>
+    ) : slug === 'i2c-timing' ? (
+      <>
+        <path d="M3 9h3l1-4h4l1 4h3l1-4h4l1 4h0" />
+        <path d="M3 18h4.5l1.5-4h6l1.5 4H21" opacity="0.7" />
+      </>
+    ) : slug === 'can-timing' ? (
+      <>
+        <path d="M3 8h4l1.5 3L10 5l1.5 3H21" />
+        <path d="M3 16h7l1.5-3 1.5 6 1.5-3H21" opacity="0.7" />
+      </>
+    ) : slug === 'watchdog' ? (
+      <>
+        <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6z" />
+        <path d="M12 8.5V12l2.5 1.5" />
+      </>
+    ) : slug === 'binary' ? (
+      <>
+        <rect x="3" y="5" width="4" height="6" rx="1" />
+        <rect x="10" y="5" width="4" height="6" rx="1" fill="currentColor" />
+        <rect x="17" y="5" width="4" height="6" rx="1" />
+        <rect x="3" y="13" width="4" height="6" rx="1" fill="currentColor" />
+        <rect x="10" y="13" width="4" height="6" rx="1" />
+        <rect x="17" y="13" width="4" height="6" rx="1" fill="currentColor" />
+      </>
+    ) : slug === 'crc' ? (
+      <>
+        <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6z" />
+        <path d="m8.8 12 2.2 2.2 4.4-4.4" />
+      </>
+    ) : slug === 'float' ? (
+      <>
+        <rect x="2.5" y="8" width="3" height="8" rx="1" />
+        <rect x="7.5" y="8" width="5" height="8" rx="1" />
+        <rect x="14.5" y="8" width="7" height="8" rx="1" />
+      </>
+    ) : slug === 'fixed-point' ? (
+      <>
+        <path d="M3 8v8M7 8v8M17 8v8M21 8v8" />
+        <circle cx="12" cy="15.5" r="1.3" fill="currentColor" />
+      </>
+    ) : slug === 'bytes' ? (
+      <>
+        <rect x="3" y="4" width="7" height="6" rx="1" />
+        <rect x="14" y="14" width="7" height="6" rx="1" />
+        <path d="M14 7h4.5a2.5 2.5 0 0 1 2.5 2.5V11M10 17H5.5A2.5 2.5 0 0 1 3 14.5V13" />
+      </>
+    ) : slug === 'ascii' ? (
+      <>
+        <rect x="3" y="3" width="18" height="18" rx="3" />
+        <path d="m8 17 4-10 4 10M9.5 13.5h5" />
+      </>
+    ) : slug === 'battery-life' ? (
+      <>
+        <rect x="2.5" y="7" width="17" height="10" rx="2" />
+        <path d="M21.5 10.5v3" />
+        <path d="M6 10v4M9.5 10v4" />
+      </>
+    ) : slug === 'adc' ? (
+      <>
+        <path d="M3 20h3v-3h3v-3h3v-3h3V8h3V5h3" />
+        <path d="M3 20 21 4" opacity="0.4" />
+      </>
+    ) : slug === 'rc-filter' ? (
+      <>
+        <path d="M3 7h7c3 0 4 2 5.5 6S18 20 21 20" />
+        <path d="M10 3v18" opacity="0.4" stroke-dasharray="2 2.5" />
+      </>
+    ) : slug === 'ntc' ? (
+      <>
+        <path d="M14 14.5V5a2 2 0 0 0-4 0v9.5a4 4 0 1 0 4 0z" />
+        <path d="M12 9v7" />
+        <path d="M18 6h2.5M18 10h2.5" opacity="0.6" />
+      </>
+    ) : slug === 'i2c-pullup' ? (
+      <>
+        <path d="M12 2.5v3l-3 1.5 6 3-6 3 6 3-3 1.5v4" />
+        <path d="M7 2.5h10" />
+      </>
+    ) : (
+      <>
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <path d="M9 3v3M15 3v3M9 18v3M15 18v3" />
+      </>
+    )
+  }
+</svg>

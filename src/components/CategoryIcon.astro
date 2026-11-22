@@ -1,0 +1,60 @@
+---
+import type { Category } from '../tools';
+
+interface Props {
+  id: Category;
+  size?: number;
+}
+
+const { id, size = 22 } = Astro.props;
+---
+
+<svg
+  viewBox="0 0 24 24"
+  width={size}
+  height={size}
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.8"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
+  {
+    id === 'wireless' && (
+      <>
+        <path d="M12 13v8" />
+        <circle cx="12" cy="11" r="1.6" />
+        <path d="M8.5 7.5a5 5 0 0 0 0 7M15.5 7.5a5 5 0 0 1 0 7" />
+        <path d="M5.6 4.6a9 9 0 0 0 0 12.8M18.4 4.6a9 9 0 0 1 0 12.8" />
+      </>
+    )
+  }
+  {
+    id === 'timing' && (
+      <>
+        <rect x="6" y="6" width="12" height="12" rx="2" />
+        <path d="M9 2.5v3.5M15 2.5v3.5M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5" />
+        <path d="M12 9.5V12l1.8 1.2" />
+      </>
+    )
+  }
+  {
+    id === 'binary' && (
+      <>
+        <rect x="3" y="4" width="5" height="16" rx="1.2" />
+        <path d="M10.5 4v16" />
+        <rect x="13" y="4" width="5" height="16" rx="1.2" />
+        <path d="M20.5 4v16" />
+      </>
+    )
+  }
+  {
+    id === 'analog' && (
+      <>
+        <path d="M2.5 12c1.6-5 3.2-7.5 4.75-7.5S10.4 7 12 12s3.2 7.5 4.75 7.5S19.9 17 21.5 12" />
+        <path d="M2.5 12h19" opacity="0.35" />
+      </>
+    )
+  }
+</svg>

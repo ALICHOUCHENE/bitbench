@@ -1,0 +1,338 @@
+---
+import '@fontsource-variable/inter';
+import '@fontsource-variable/jetbrains-mono';
+import '../styles/global.css';
+import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+import monoLatin from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
+import { SITE } from '../config';
+import { CATEGORIES, TOOLS } from '../tools';
+import { toolUrl, url } from '../utils/paths';
+
+interface Props {
+  /** Page title without the site name. Omit on the homepage. */
+  title?: string;
+  description: string;
+  /** Extra JSON-LD object for this page. */
+  jsonLd?: Record<string, unknown>;
+}
+
+const { title, description, jsonLd } = Astro.props;
+const fullTitle = title ? `${title} — ${SITE.name}` : `${SITE.name} — ${SITE.tagline}`;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const ogImage = new URL(url('og-image.png'), Astro.site).href;
+const path = Astro.url.pathname.replace(/\/$/, '');
+const isCurrent = (href: string) => path === href.replace(/\/$/, '');
+const year = new Date().getFullYear();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="preload" href={interLatin} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={monoLatin} as="font" type="font/woff2" crossorigin />
+    <link rel="icon" href={url('favicon.svg')} type="image/svg+xml" />
+    <link rel="apple-touch-icon" href={url('icon-192.png')} />
+    <link rel="manifest" href={url('manifest.webmanifest')} />
+    <link rel="sitemap" href={url('sitemap-index.xml')} />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1b2029" media="(prefers-color-scheme: dark)" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:title" content={title ?? SITE.name} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    {jsonLd && <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />}
+
+    <script is:inline>
+      document.documentElement.classList.add('js');
+      try {
+        const t = localStorage.getItem('theme');
+        if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+      } catch {}
+    </script>
+    {
+      SITE.goatcounterCode && (
+        <script
+          is:inline
+          data-goatcounter={`https://${SITE.goatcounterCode}.goatcounter.com/count`}
+          async
+          src="https://gc.zgo.at/count.js"
+        />
+      )
+    }
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="brand" href={url('/')} aria-label={`${SITE.name} home`}>
+          <span class="brand-tile" aria-hidden="true">
+            <svg viewBox="0 0 20 20" width="20" height="20">
+              <rect x="2" y="4" width="3" height="12" rx="1" class="off" />
+              <rect x="6.5" y="4" width="3" height="12" rx="1" class="on" />
+              <rect x="11" y="4" width="3" height="12" rx="1" class="off" />
+              <rect x="15.5" y="4" width="3" height="12" rx="1" class="on" />
+            </svg>
+          </span>
+          <span>{SITE.name}</span>
+        </a>
+        <nav aria-label="Main">
+          <ul>
+            <li class="nav-tools"><a href={url('/')} aria-current={isCurrent(url('/')) ? 'page' : undefined}>Tools</a></li>
+            <li><a href={url('about/')} aria-current={isCurrent(url('about/')) ? 'page' : undefined}>About</a></li>
+            <li><a href={url('contact/')} aria-current={isCurrent(url('contact/')) ? 'page' : undefined}>Contact</a></li>
+            <li>
+              <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle dark theme" aria-pressed="false">
+                <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                  <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.5"></circle>
+                  <path d="M8 1.5a6.5 6.5 0 0 1 0 13z" fill="currentColor"></path>
+                </svg>
+              </button>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main" class="wrap">
+      <slot />
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <p class="footer-name">{SITE.name}</p>
+            <p>{SITE.tagline}</p>
+            <p>Built by <a href={url('about/')}>{SITE.owner}</a>.</p>
+            <p class="footer-promise">Free · No ads · No cookies · Runs in your browser</p>
+          </div>
+          {
+            CATEGORIES.map((c) => (
+              <nav class="footer-col" aria-label={c.label}>
+                <p class="footer-head">{c.label}</p>
+                <ul>
+                  {TOOLS.filter((t) => t.category === c.id).map((t) => (
+                    <li>
+                      <a href={toolUrl(t.slug)}>{t.name}</a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+            ))
+          }
+          <nav class="footer-col" aria-label="Project">
+            <p class="footer-head">Project</p>
+            <ul>
+              <li><a href={url('about/')}>About</a></li>
+              <li><a href={url('contact/')}>Contact</a></li>
+              <li><a href={SITE.github} rel="me noopener">GitHub</a></li>
+              <li><a href={SITE.linkedin} rel="me noopener">LinkedIn</a></li>
+            </ul>
+          </nav>
+        </div>
+        <p class="footer-copy">© {year} {SITE.owner}. Results are provided as-is; check critical values against the datasheet or specification.</p>
+      </div>
+    </footer>
+
+    <script>
+      import '../scripts/site';
+    </script>
+  </body>
+</html>
+
+<style>
+  .site-header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--rule);
+    box-shadow: var(--shadow);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    transition: box-shadow 0.25s;
+  }
+  .site-header.is-scrolled {
+    box-shadow: var(--shadow-hover);
+  }
+  .theme-toggle svg {
+    transition: transform 0.5s var(--ease-out);
+  }
+  .theme-toggle.is-spinning svg {
+    transform: rotate(180deg);
+  }
+  .brand-tile rect {
+    transition: fill 0.25s, stroke 0.25s;
+  }
+  .brand:hover .brand-tile .off {
+    fill: #8aaef0;
+    stroke: #8aaef0;
+  }
+  .brand:hover .brand-tile .on {
+    fill: transparent;
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-width: 1.2;
+  }
+  .header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s4);
+    min-height: 3.5rem;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s2);
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 700;
+    font-size: var(--text-lg);
+    letter-spacing: -0.01em;
+  }
+  .brand-tile {
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 7px;
+    background: linear-gradient(145deg, #2a3445, #161c26);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), var(--shadow);
+  }
+  .brand-tile .off {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-width: 1.2;
+  }
+  .brand-tile .on {
+    fill: #8aaef0;
+  }
+  @media (max-width: 30rem) {
+    .header-inner {
+      flex-wrap: nowrap;
+      gap: var(--s2);
+    }
+    .nav-tools {
+      display: none;
+    }
+    .site-header nav a {
+      padding: var(--s2) var(--s2) !important;
+    }
+  }
+  .site-header nav ul {
+    display: flex;
+    align-items: center;
+    gap: var(--s1);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .site-header nav a {
+    display: block;
+    padding: var(--s2) var(--s3);
+    color: var(--ink);
+    text-decoration: none;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    border-radius: var(--radius);
+  }
+  .site-header nav a:hover {
+    background: var(--surface-2);
+  }
+  .site-header nav a[aria-current='page'] {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .theme-toggle {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    cursor: pointer;
+    margin-left: var(--s2);
+  }
+  .theme-toggle:hover {
+    border-color: var(--ink-muted);
+  }
+  main {
+    padding-bottom: var(--s8);
+    min-height: 60vh;
+  }
+  .site-footer {
+    background: var(--surface);
+    border-top: 1px solid var(--rule);
+    padding: var(--s7) 0 var(--s5);
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+    margin-top: var(--s6);
+  }
+  .footer-grid {
+    display: grid;
+    gap: var(--s5) var(--s6);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (min-width: 64rem) {
+    .footer-grid {
+      grid-template-columns: 1.6fr repeat(5, minmax(0, 1fr));
+    }
+  }
+  .footer-brand {
+    grid-column: 1 / -1;
+  }
+  @media (min-width: 64rem) {
+    .footer-brand {
+      grid-column: auto;
+    }
+  }
+  .footer-brand p {
+    margin: 0 0 var(--s2);
+    max-width: 28ch;
+  }
+  .footer-name {
+    font-weight: 700;
+    font-size: var(--text-base);
+    color: var(--ink);
+  }
+  .footer-promise {
+    font-size: 0.8125rem;
+  }
+  .footer-head {
+    margin: 0 0 var(--s2);
+    font-weight: 650;
+    color: var(--ink);
+  }
+  .footer-col ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--s1);
+  }
+  .footer-col a {
+    color: var(--ink-muted);
+    text-decoration: none;
+  }
+  .footer-col a:hover {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  .footer-copy {
+    margin: var(--s6) 0 0;
+    padding-top: var(--s4);
+    border-top: 1px solid var(--rule);
+    font-size: 0.8125rem;
+  }
+</style>

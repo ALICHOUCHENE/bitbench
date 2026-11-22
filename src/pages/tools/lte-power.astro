@@ -1,0 +1,502 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import Toggle from '../../components/Toggle.astro';
+import { OVERHEADS, SAVING_MODES } from '../../lib/lte-power';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: '3GPP TS 24.301 — Non-Access-Stratum (NAS) protocol for Evolved Packet System (EPS); Stage 3',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1072',
+    note: '§5.3.5 (T3412 started when the UE enters EMM-IDLE), §5.3.11 (power saving mode, T3324), §5.3.12 (eDRX).',
+  },
+  {
+    title: '3GPP TS 36.304 — E-UTRA; User Equipment (UE) procedures in idle mode',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=2432',
+    note: '§7.1 paging DRX, §7.3 paging in extended DRX (paging time window).',
+  },
+  {
+    title: '3GPP TS 36.331 — E-UTRA; Radio Resource Control (RRC) protocol specification',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=2440',
+    note: 'PCCH-Config defaultPagingCycle (rf32–rf256) and PCCH-Config-NB (rf128–rf1024).',
+  },
+  {
+    title: '3GPP TS 24.008 — Mobile radio interface Layer 3 specification; Core network protocols',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1015',
+    note: 'Table 10.5.5.32: eDRX cycle and paging time window values for WB-S1 and NB-S1.',
+  },
+  {
+    title: 'GSMA — LTE-M Deployment Guide to Basic Feature Set Requirements',
+    href: 'https://www.gsma.com/iot/resources/',
+    note: 'operator guidance on PSM, eDRX and timer values',
+  },
+];
+
+const durUnits = [
+  { value: 's', label: 's' },
+  { value: 'min', label: 'min' },
+  { value: 'h', label: 'h' },
+  { value: 'd', label: 'days' },
+];
+const shortUnits = [
+  { value: 's', label: 's' },
+  { value: 'min', label: 'min' },
+];
+const repOptions = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048].map((n) => ({ value: String(n), label: `× ${n}` }));
+---
+
+<ToolLayout slug="lte-power" references={references}>
+  <form id="lp-form" novalidate>
+    <div class="tool-grid">
+      <div>
+        <fieldset class="panel">
+          <legend class="visually-hidden">Traffic</legend>
+          <h2 class="panel-title">Traffic</h2>
+          <div class="fields">
+            <NumberInput name="interval" label="Report interval" value="1" units={durUnits} unitValue="h" />
+            <NumberInput name="payload" label="Payload per report" value="50" unit="B" inputmode="numeric" />
+            <SelectInput name="ovh" label="Transport overhead" options={OVERHEADS.map((o) => ({ value: o.value, label: o.label }))} value="udp4" />
+            <NumberInput name="rate" label="Uplink data rate" value="100" unit="kbit/s" help="Effective, before repetitions" />
+            <SelectInput name="rep" label="Repetitions" options={repOptions} value="1" help="Coverage enhancement; ×1 in good coverage" />
+          </div>
+        </fieldset>
+
+        <fieldset class="panel">
+          <legend class="visually-hidden">Network</legend>
+          <h2 class="panel-title">Network and power saving</h2>
+          <div class="fields fields--wide">
+            <Segmented
+              name="rat"
+              label="Radio access"
+              options={[
+                { value: 'wb', label: 'LTE-M' },
+                { value: 'nb', label: 'NB-IoT' },
+              ]}
+            />
+            <Segmented name="mode" label="Power saving" options={SAVING_MODES} />
+          </div>
+          <div class="fields" style="margin-top: var(--s4)">
+            <NumberInput name="tau" label="Periodic TAU (T3412)" value="24" units={durUnits} unitValue="h" help="0 = periodic TAU off" />
+            <div data-when="psm">
+              <NumberInput name="act" label="Active Time (T3324)" value="10" units={shortUnits} unitValue="s" help="Idle, reachable time after each connection" />
+            </div>
+            <SelectInput name="drx" label="Paging DRX cycle" options={[]} />
+            <div data-when="edrx">
+              <SelectInput name="edrx" label="eDRX cycle" options={[]} />
+            </div>
+            <div data-when="edrx">
+              <SelectInput name="ptw" label="Paging time window" options={[]} />
+            </div>
+            <div data-when="tail">
+              <NumberInput name="inact" label="RRC inactivity timer" value="20" unit="s" help="Set by the network, often 10–60 s" />
+            </div>
+          </div>
+          <div class="fields fields--wide" style="margin-top: var(--s4)">
+            <Toggle name="rai" label="Release Assistance Indication (RAI): network releases right after the uplink" />
+          </div>
+        </fieldset>
+      </div>
+
+      <section class="panel" aria-labelledby="lp-results">
+        <h2 class="panel-title" id="lp-results">Results</h2>
+        <dl class="results">
+          <ResultRow label="Average current" name="avg" primary />
+          <ResultRow label="Battery life" name="life" />
+          <ResultRow label="Battery life in years" name="years" unit="y" />
+          <ResultRow label="Charge per report" name="charge" unit="µAh" />
+          <ResultRow label="Uplink TX time per report" name="tx" />
+          <ResultRow label="Connected time per report" name="conn" />
+          <ResultRow label="Periodic TAUs between reports" name="taus" />
+          <ResultRow label="Average idle (paging) current" name="idle" />
+          <ResultRow label="Downlink reachable within" name="reach" />
+        </dl>
+        <div id="lp-warn" aria-live="polite"></div>
+        <p class="btn-row" style="margin-top: var(--s4)">
+          <a id="bat-link" class="btn btn--primary" href={toolUrl('battery-life')} data-base={toolUrl('battery-life')}>Open in Battery Life →</a>
+          <a id="psm-link" class="btn" href={toolUrl('psm-edrx')} data-base={toolUrl('psm-edrx')}>Encode these timers →</a>
+        </p>
+      </section>
+    </div>
+
+    <div class="tool-grid section">
+      <fieldset class="panel">
+        <legend class="visually-hidden">Module currents</legend>
+        <h2 class="panel-title">Module currents</h2>
+        <div class="fields">
+          <NumberInput name="iPsm" label="PSM floor" value="3" unit="µA" />
+          <NumberInput name="iIdle" label="Idle floor (between paging)" value="15" unit="µA" />
+          <NumberInput name="iPo" label="Paging occasion current" value="15" unit="mA" />
+          <NumberInput name="tPo" label="Paging occasion length" value="10" unit="ms" help="Wake-up, sync and paging decode" />
+          <NumberInput name="iSetup" label="Connection setup current" value="60" unit="mA" />
+          <NumberInput name="tSetup" label="Connection setup time" value="1.5" unit="s" help="Random access, RRC, NAS service request" />
+          <NumberInput name="iTx" label="TX current" value="220" unit="mA" help="At the transmit power you expect" />
+          <NumberInput name="iTail" label="Connected, waiting" value="5" unit="mA" help="Average during the inactivity tail (C-DRX)" />
+        </div>
+        <p class="help" style="margin-top: var(--s3)">Default currents are illustrative, not data for any particular module. Use your module's datasheet or, better, your own measurements.</p>
+      </fieldset>
+
+      <fieldset class="panel">
+        <legend class="visually-hidden">Battery</legend>
+        <h2 class="panel-title">Battery</h2>
+        <div class="fields">
+          <NumberInput name="cap" label="Rated capacity" value="2400" unit="mAh" />
+          <NumberInput name="derate" label="Usable capacity" value="85" unit="%" help="Pulse load, temperature, cut-off voltage" />
+          <NumberInput name="sd" label="Self-discharge" value="1" unit="%/year" />
+        </div>
+      </fieldset>
+    </div>
+  </form>
+
+  <section class="section" aria-labelledby="lp-break">
+    <h2 id="lp-break">Where the charge goes</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Phase</th>
+            <th class="num">Current</th>
+            <th class="num">Time per report</th>
+            <th class="num">Charge</th>
+            <th class="bar-col">Share of charge</th>
+          </tr>
+        </thead>
+        <tbody id="lp-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="lp-cmp">
+    <h2 id="lp-cmp">Same device, other power-saving modes</h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Mode</th>
+            <th class="num">Average current</th>
+            <th class="num">Battery life</th>
+            <th class="num">Downlink reachable within</th>
+          </tr>
+        </thead>
+        <tbody id="lp-modes"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <Fragment slot="formula">
+    <pre>Uplink TX time     t_tx   = (payload + overhead) · 8 / rate · repetitions
+Connected per report       = t_setup + t_tx + t_inactivity      (t_inactivity = 0 with RAI)
+Idle, paging DRX   I_idle = I_floor + (I_PO − I_floor) · t_PO / T_DRX
+Idle, eDRX         I_idle = I_floor + (I_PO − I_floor) · n_PO · t_PO / T_eDRX,   n_PO = ⌊PTW / T_DRX⌋ ≥ 1
+Periodic TAUs      k      = ⌈(T_report − connected) / T3412⌉ − 1
+PSM modes:   idle = (1 + k) · T3324,   PSM = T_report − connected − k · t_setup − idle
+Other modes: idle = T_report − connected − k · t_setup
+Average current    I_avg  = Σ (I_phase · t_phase) / T_report
+Battery life       L      = C_rated · usable % / (I_avg + C_rated · sd % / 8760 h)</pre>
+    <p>
+      T3412 and T3324 both start when the device returns to idle (TS 24.301 §5.3.5, §5.3.11), so a report resets the
+      periodic TAU timer and every connection, report or TAU, is followed by a full Active Time. A periodic TAU is
+      modelled as one connection setup without user data and without an inactivity tail: without the "active" flag the
+      network releases the connection after TAU accept. If the Active Times do not fit in the report interval, the
+      device never reaches PSM and stays idle instead.
+    </p>
+    <p>
+      Downlink reachability is the worst-case wait for mobile-terminated data: the time to the next connection in PSM,
+      the eDRX cycle in eDRX, the paging cycle otherwise. The battery link passes the phases as states to the
+      <a href={toolUrl('battery-life')}>battery life estimator</a>.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Where an LTE-M device spends its battery</h2>
+    <p>
+      A cellular IoT device that reports once an hour is asleep more than 99 % of the time, yet sleep is rarely what
+      empties the battery. The charge goes to the few seconds around each report: setting up the connection, the
+      transmission itself, and above all the time the module stays connected waiting for the network to release it.
+      This calculator builds one report interval phase by phase, so you can see which one to attack first.
+    </p>
+    <h3>PSM, eDRX or both</h3>
+    <p>
+      In PSM the module is unreachable and draws only a few µA until its next report or periodic TAU. eDRX keeps the
+      device reachable: it sleeps for the eDRX cycle (5.12 s to 43.69 min on LTE-M, 20.48 s to 2.91 h on NB-IoT), then
+      listens for paging during the paging time window. PSM wins whenever the device only needs to send. eDRX wins when
+      the server must reach the device within minutes. PSM with eDRX during the Active Time is a compromise for devices
+      that expect a reply shortly after reporting. The comparison table runs your inputs through every mode.
+    </p>
+    <h3>The inactivity tail and RAI</h3>
+    <p>
+      After the last packet the eNodeB keeps the connection open until its RRC inactivity timer expires. The device
+      cannot see this timer and the operator chooses it; tens of seconds are common. At a few mA that tail often costs
+      more than the transmission. Release Assistance Indication lets the device tell the network that no more data is
+      expected, so the connection is released straight away. Standard AT commands carry it for control-plane data
+      (the <code>&lt;RAI&gt;</code> parameter of <code>AT+CSODCP</code> in TS 27.007); for IP sockets most modules have
+      a vendor-specific command. Check that both your module and your operator support it, then measure.
+    </p>
+    <h3>Coverage changes everything</h3>
+    <p>
+      In poor coverage the module transmits at full power (23 dBm for power class 3) and the network adds repetitions:
+      up to 32 in LTE-M CE mode A, up to 2048 in CE mode B, up to 128 for NB-IoT uplink data. Connection setup takes
+      longer too, because random access is also repeated. A device that lasts ten years at the window may last one in a
+      basement. Run the budget for the worst coverage you expect, not the best.
+    </p>
+    <h3>Get the numbers from the bench</h3>
+    <p>
+      Datasheet currents are measured under ideal conditions and rarely include retries, network delays or your own
+      MCU and sensors. Capture a few real report cycles with a power analyser on your operator's network, read the
+      length and average current of each phase from the trace, and enter those. Then fine-tune the timers in the
+      <a href={toolUrl('psm-edrx')}>PSM &amp; eDRX calculator</a> and check what the network actually granted. It
+      often differs from what you requested.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, esc, setError, setResult } from '../../scripts/tool-client';
+  import { formatDuration, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import { estimateBattery, parseStates } from '../../lib/battery';
+  import { EDRX_S1, edrxValidCycles, ptwValues, type EdrxMode } from '../../lib/psm-edrx';
+  import {
+    batteryStates,
+    compareModes,
+    computeBudget,
+    overheadBytes,
+    PAGING_CYCLES,
+    SAVING_MODES,
+    type PowerBudget,
+    type PowerInputs,
+    type SavingMode,
+  } from '../../lib/lte-power';
+  import type { Values } from '../../lib/url-state';
+
+  const RESULTS = ['avg', 'life', 'years', 'charge', 'tx', 'conn', 'taus', 'idle', 'reach'];
+  const TIME: Record<string, number> = { s: 1, min: 60, h: 3600, d: 86400 };
+  const DEFAULT_SEL: Record<EdrxMode, { drx: string; edrx: string; ptw: string }> = {
+    wb: { drx: '1.28', edrx: '20.48', ptw: '2.56' },
+    nb: { drx: '2.56', edrx: '81.92', ptw: '2.56' },
+  };
+
+  const form = document.getElementById('lp-form') as HTMLFormElement;
+  const sel = (n: string) => form.elements.namedItem(n) as HTMLSelectElement;
+  const warnBox = document.getElementById('lp-warn')!;
+  const rows = document.getElementById('lp-rows')!;
+  const modeRows = document.getElementById('lp-modes')!;
+  const batLink = document.getElementById('bat-link') as HTMLAnchorElement;
+  const psmLink = document.getElementById('psm-link') as HTMLAnchorElement;
+
+  const short = (s: number) => (s >= 60 ? `${s} s (${formatDuration(s)})` : `${s} s`);
+  let builtRat: EdrxMode | null = null;
+
+  /** Fill the RAT-dependent selects, keeping the nearest value to the current selection. */
+  function buildSelects(rat: EdrxMode) {
+    if (rat === builtRat) return;
+    const lists: Record<string, number[]> = {
+      drx: [...PAGING_CYCLES[rat]],
+      edrx: edrxValidCycles(rat).map((c) => c.seconds),
+      ptw: ptwValues(rat).map((p) => p.seconds),
+    };
+    for (const [name, values] of Object.entries(lists)) {
+      const el = sel(name);
+      const prev = parseFloat(el.value || el.dataset.want || '');
+      const target = Number.isFinite(prev) ? prev : Number(DEFAULT_SEL[rat][name as 'drx']);
+      el.innerHTML = values.map((v) => `<option value="${v}">${short(v)}</option>`).join('');
+      const pick = values.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a));
+      el.value = String(pick);
+    }
+    builtRat = rat;
+  }
+
+  // Start with the LTE-M lists so bindForm records LTE-M defaults. Values from the URL that only
+  // exist for NB-IoT are kept in data-want and picked up when update() rebuilds the lists.
+  buildSelects('wb');
+  const query = new URLSearchParams(location.search);
+  for (const n of ['drx', 'edrx', 'ptw']) {
+    const want = query.get(n);
+    if (want) sel(n).setAttribute('data-want', want);
+  }
+
+  function num(v: Values, name: string, label: string, min: number, max: number, strictMin = false): number | null {
+    const x = parseNumber(v[name] ?? '');
+    if (x === null) return setError(name, `${label} must be a number.`), null;
+    if (strictMin ? x <= min : x < min) return setError(name, `${label} must be ${strictMin ? 'greater than' : 'at least'} ${min}.`), null;
+    if (x > max) return setError(name, `${label} must be at most ${max}.`), null;
+    setError(name, null);
+    return x;
+  }
+  const withUnit = (v: Values, name: string) => TIME[v[`${name}Unit`]] ?? 1;
+
+  function lifeOf(b: PowerBudget, cap: number, derate: number, sd: number) {
+    const states = b.phases.filter((p) => p.time > 0).map((p) => ({ label: p.label, current: p.current, duration: p.time }));
+    return estimateBattery(cap, derate, sd, states);
+  }
+  const lifeText = (s: number) => (Number.isFinite(s) ? formatDuration(s) : '∞');
+
+  function setVisibility(mode: SavingMode, rai: boolean) {
+    const psm = mode === 'psm' || mode === 'psm-edrx';
+    const edrx = mode === 'psm-edrx' || mode === 'edrx';
+    form.querySelectorAll<HTMLElement>('[data-when]').forEach((el) => {
+      const w = el.dataset.when;
+      el.hidden = w === 'psm' ? !psm : w === 'edrx' ? !edrx : w === 'tail' ? rai : false;
+    });
+  }
+
+  function update(v: Values) {
+    const rat: EdrxMode = v.rat === 'nb' ? 'nb' : 'wb';
+    if (rat !== builtRat) {
+      buildSelects(rat);
+      // Mutate in place: bindForm writes this same object to the URL.
+      Object.assign(v, { drx: sel('drx').value, edrx: sel('edrx').value, ptw: sel('ptw').value });
+    }
+    const mode = (SAVING_MODES.some((m) => m.value === v.mode) ? v.mode : 'psm') as SavingMode;
+    const rai = v.rai === '1';
+    setVisibility(mode, rai);
+
+    const vals = {
+      interval: num(v, 'interval', 'Report interval', 0, 1e9, true),
+      payload: num(v, 'payload', 'Payload', 0, 1e6),
+      rate: num(v, 'rate', 'Uplink rate', 0, 1e5, true),
+      tau: num(v, 'tau', 'Periodic TAU', 0, 1e9),
+      act: num(v, 'act', 'Active Time', 0, 1e6),
+      inact: num(v, 'inact', 'Inactivity timer', 0, 1e4),
+      iPsm: num(v, 'iPsm', 'PSM floor', 0, 1e6),
+      iIdle: num(v, 'iIdle', 'Idle floor', 0, 1e6),
+      iPo: num(v, 'iPo', 'Paging current', 0, 1e4),
+      tPo: num(v, 'tPo', 'Paging occasion length', 0, 1e4),
+      iSetup: num(v, 'iSetup', 'Setup current', 0, 1e4),
+      tSetup: num(v, 'tSetup', 'Setup time', 0, 1e4),
+      iTx: num(v, 'iTx', 'TX current', 0, 1e4),
+      iTail: num(v, 'iTail', 'Connected current', 0, 1e4),
+      cap: num(v, 'cap', 'Capacity', 0, 1e7, true),
+      derate: num(v, 'derate', 'Usable capacity', 0, 100, true),
+      sd: num(v, 'sd', 'Self-discharge', 0, 100),
+    };
+    const drx = Number(v.drx);
+    const edrxS = Number(v.edrx);
+    const ptw = Number(v.ptw);
+    const ovh = overheadBytes(v.ovh) ?? 0;
+    const rep = Math.max(1, Number(v.rep) || 1);
+
+    if (Object.values(vals).some((x) => x === null) || !(drx > 0 && edrxS > 0 && ptw > 0)) {
+      clearResults(...RESULTS);
+      warnBox.innerHTML = '';
+      rows.innerHTML = '';
+      modeRows.innerHTML = '';
+      return;
+    }
+    const n = vals as { [K in keyof typeof vals]: number };
+
+    const inputs: PowerInputs = {
+      mode,
+      interval: n.interval * withUnit(v, 'interval'),
+      payload: n.payload,
+      overhead: ovh,
+      ulRate: n.rate,
+      repetitions: rep,
+      t3412: n.tau * withUnit(v, 'tau'),
+      t3324: n.act * withUnit(v, 'act'),
+      drxCycle: drx,
+      edrxCycle: edrxS,
+      ptw,
+      inactivity: n.inact,
+      rai,
+      psmCurrent: n.iPsm / 1000,
+      idleFloor: n.iIdle / 1000,
+      poCurrent: n.iPo,
+      poTime: n.tPo / 1000,
+      setupCurrent: n.iSetup,
+      setupTime: n.tSetup,
+      txCurrent: n.iTx,
+      tailCurrent: n.iTail,
+    };
+
+    const b = computeBudget(inputs);
+    const life = lifeOf(b, n.cap, n.derate, n.sd);
+    setResult('avg', formatSI(b.avgCurrent * 1e-3, 'A', 4));
+    setResult('life', lifeText(life.lifetime));
+    setResult('years', Number.isFinite(life.lifetime) ? formatNumber(life.lifetime / (365 * 86400), 3) : '∞');
+    setResult('charge', formatNumber((b.chargePerInterval / 3600) * 1000, 5));
+    setResult('tx', formatSI(b.txTime, 's', 4));
+    setResult('conn', formatDuration(b.connected));
+    setResult('taus', String(b.taus));
+    setResult('idle', formatSI(b.idleCurrent * 1e-3, 'A', 4));
+    setResult('reach', formatDuration(b.reachability));
+
+    const warnings = [...b.warnings];
+    if (life.lifetime / (365 * 86400) > 10)
+      warnings.push('More than 10 years: shelf life, passivation and the module’s own lifetime will likely limit the device before the charge runs out.');
+    warnBox.innerHTML = warnings.map((w) => `<p class="note note--warn">${esc(w)}</p>`).join('');
+
+    const pct = (x: number) => `${formatNumber(x * 100, 3)} %`;
+    rows.innerHTML = b.phases
+      .map(
+        (p) => `<tr><td>${esc(p.label)}</td><td class="num">${formatSI(p.current * 1e-3, 'A', 4)}</td>
+          <td class="num">${p.time > 0 ? formatDuration(p.time) : '0 s'}</td>
+          <td class="num">${formatNumber((p.charge / 3600) * 1000, 4)} µAh</td>
+          <td class="bar-col"><span class="bar" style="--w:${(p.share * 100).toFixed(2)}%"></span><span class="bar-val">${pct(p.share)}</span></td></tr>`,
+      )
+      .join('');
+
+    modeRows.innerHTML = compareModes(inputs)
+      .map(({ mode: m, budget }) => {
+        const l = lifeOf(budget, n.cap, n.derate, n.sd).lifetime;
+        const label = SAVING_MODES.find((x) => x.value === m)!.label;
+        return `<tr${m === mode ? ' class="is-current"' : ''}><td>${esc(label)}${m === mode ? ' <span class="badge">selected</span>' : ''}</td>
+          <td class="num">${formatSI(budget.avgCurrent * 1e-3, 'A', 4)}</td><td class="num">${lifeText(l)}</td>
+          <td class="num">${formatDuration(budget.reachability)}</td></tr>`;
+      })
+      .join('');
+
+    // Battery Life: the phases as states, plus the battery settings.
+    const states = batteryStates(b);
+    const bq = new URLSearchParams({ cap: v.cap, derate: v.derate, sd: v.sd });
+    const statesQ = encodeURIComponent(states).replace(/%3A/gi, ':').replace(/%3B/gi, ';');
+    batLink.href = `${batLink.dataset.base}?states=${statesQ}&${bq.toString()}`;
+    batLink.toggleAttribute('aria-disabled', parseStates(states).length === 0);
+
+    // PSM & eDRX: the requested timers.
+    const pq = new URLSearchParams({ tau: String(inputs.t3412), tauUnit: 's', edrxMode: rat });
+    const psm = mode === 'psm' || mode === 'psm-edrx';
+    const edrx = mode === 'psm-edrx' || mode === 'edrx';
+    if (psm) {
+      pq.set('act', String(inputs.t3324));
+      pq.set('actUnit', 's');
+    } else pq.set('psm', '0');
+    if (edrx) {
+      const cycle = EDRX_S1.find((c) => c.seconds === edrxS);
+      if (cycle) pq.set('cycle', String(cycle.code));
+      pq.set('ptw', String(Math.round(ptw / (rat === 'wb' ? 1.28 : 2.56)) - 1));
+    } else pq.set('edrx', '0');
+    psmLink.href = `${psmLink.dataset.base}?${pq.toString()}`;
+  }
+
+  bindForm(form, update);
+</script>
+
+<style>
+  .tool-grid > div > .panel + .panel {
+    margin-top: var(--s4);
+  }
+  :global(.bar-col) {
+    min-width: 12rem;
+    width: 35%;
+  }
+  :global(td.bar-col) {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+  }
+  :global(.bar) {
+    flex: 1 1 auto;
+    height: 0.6rem;
+    background: linear-gradient(to right, var(--accent) var(--w), var(--rule) var(--w));
+    border-radius: var(--radius);
+  }
+  :global(.bar-val) {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    min-width: 4.5rem;
+    text-align: right;
+  }
+</style>

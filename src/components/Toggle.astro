@@ -1,0 +1,20 @@
+---
+// Checkbox. collect() reports it as "1" (checked) or "0".
+interface Props {
+  name: string;
+  label: string;
+  checked?: boolean;
+  help?: string;
+}
+
+const { name, label, checked = false, help } = Astro.props;
+const id = `f-${name}`;
+---
+
+<div class="field">
+  <label class="check" for={id}>
+    <input type="checkbox" id={id} name={name} checked={checked} />
+    {label}
+  </label>
+  {help && <p class="help">{help}</p>}
+</div>

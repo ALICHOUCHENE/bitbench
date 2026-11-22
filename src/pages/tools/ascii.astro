@@ -1,0 +1,414 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { ASCII } from '../../lib/ascii';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  { title: 'ANSI X3.4-1986 (R1997) — 7-bit American Standard Code for Information Interchange' },
+  {
+    title: 'ECMA-6, 7-bit coded character set, 6th ed. (equivalent to ISO/IEC 646)',
+    href: 'https://ecma-international.org/publications-and-standards/standards/ecma-6/',
+  },
+  {
+    title: 'ECMA-48, Control functions for coded character sets — names of C0 control characters',
+    href: 'https://ecma-international.org/publications-and-standards/standards/ecma-48/',
+  },
+  { title: 'ISO/IEC 9899:2011 (C11) §6.4.4.4 — Character constants and escape sequences' },
+];
+
+const sel = ASCII[65];
+---
+
+<ToolLayout slug="ascii" references={references}>
+  <form id="ascii-form" novalidate>
+    <input type="hidden" name="c" value="65" />
+    <div class="ascii-layout">
+      <section class="panel find" aria-labelledby="find-title">
+        <h2 class="panel-title" id="find-title">Find a character</h2>
+        <div class="fields">
+          <NumberInput
+            name="q"
+            label="Search"
+            value=""
+            inputmode="text"
+            placeholder="A, 0x41, 65, ESC, ^C, \n, tab…"
+            help="By character, code (dec, 0x hex, 0o octal, 0b binary), name or escape"
+          />
+          <SelectInput
+            name="g"
+            label="Show"
+            options={[
+              { value: 'all', label: 'All 128' },
+              { value: 'control', label: 'Control characters' },
+              { value: 'printable', label: 'Printable' },
+              { value: 'digit', label: 'Digits' },
+              { value: 'upper', label: 'Uppercase letters' },
+              { value: 'lower', label: 'Lowercase letters' },
+              { value: 'punct', label: 'Punctuation & symbols' },
+            ]}
+          />
+        </div>
+        <p class="help count" aria-live="polite"><span data-result="count">128 of 128</span> shown</p>
+      </section>
+
+      <aside class="panel detail" aria-labelledby="detail-title" id="detail">
+        <h2 class="panel-title" id="detail-title">Selected</h2>
+        <div class="glyph-row">
+          <span class="glyph" data-result="glyph">{sel.isControl || sel.code === 32 ? sel.abbr : sel.char}</span>
+          <div>
+            <p class="glyph-name" data-result="name">{sel.name}</p>
+            <p class="help" data-result="aka">{sel.aka || ' '}</p>
+          </div>
+        </div>
+        <dl class="results">
+          <ResultRow label="Decimal" name="d-dec" />
+          <ResultRow label="Hex" name="d-hex" />
+          <ResultRow label="Octal" name="d-oct" />
+          <ResultRow label="Binary" name="d-bin" />
+          <ResultRow label="C char literal" name="d-c" />
+          <ResultRow label="Caret notation" name="d-caret" />
+          <ResultRow label="Unicode" name="d-uni" />
+          <ResultRow label="HTML entity" name="d-html" />
+          <ResultRow label="URL encoded" name="d-url" />
+        </dl>
+      </aside>
+
+      <div class="table-wrap ascii-wrap">
+        <table class="data ascii" id="ascii-table">
+          <caption class="visually-hidden">ASCII table: codes 0 to 127 with decimal, hex, octal, binary, character, name, caret notation and C escape</caption>
+          <thead>
+            <tr>
+              <th scope="col" class="num">Dec</th>
+              <th scope="col" class="num">Hex</th>
+              <th scope="col" class="num">Oct</th>
+              <th scope="col" class="num">Binary</th>
+              <th scope="col">Char</th>
+              <th scope="col">Name</th>
+              <th scope="col">Caret</th>
+              <th scope="col">C escape</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              ASCII.map((e) => (
+                <tr data-code={e.code} class:list={{ 'is-current': e.code === 65, 'is-ctrl': e.isControl }}>
+                  <td class="num">{e.dec}</td>
+                  <td class="num">{e.hex}</td>
+                  <td class="num">{e.oct}</td>
+                  <td class="num">{e.bin}</td>
+                  <td>
+                    <button
+                      type="button"
+                      class="ch"
+                      data-code={e.code}
+                      aria-label={`${e.code}: ${e.name}. Show details`}
+                      aria-pressed={e.code === 65 ? 'true' : 'false'}
+                    >
+                      {e.abbr && (e.isControl || e.code === 32) ? <span class="abbr">{e.abbr}</span> : e.char}
+                    </button>
+                  </td>
+                  <td class="name">{e.name}</td>
+                  <td class="mono">{e.caret ?? ''}</td>
+                  <td class="mono">{e.cEscape}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+        <p class="empty" id="ascii-empty" hidden>No character matches. Try a code like 0x1B, a name like “escape”, or a caret like ^[.</p>
+      </div>
+    </div>
+
+    <section class="panel section" aria-labelledby="txt-title">
+      <h2 class="panel-title" id="txt-title">Text → codes</h2>
+      <div class="tool-grid">
+        <div class="field">
+          <label for="f-txt">Text</label>
+          <textarea id="f-txt" name="txt" rows="3" spellcheck="false" autocomplete="off" aria-describedby="f-txt-help">AT+CGATT?</textarea>
+          <p class="help" id="f-txt-help">Encoded as UTF-8. Line breaks in the box are LF (\n); AT commands usually need \r.</p>
+        </div>
+        <div>
+          <dl class="results">
+            <ResultRow label="Bytes" name="t-count" />
+            <ResultRow label="Hex" name="t-hex" />
+            <ResultRow label="Decimal" name="t-dec" />
+          </dl>
+          <p class="note note--warn" id="t-warn" hidden></p>
+        </div>
+      </div>
+      <CodeOutput name="t-c" label="C string literal" />
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>ASCII is a 7-bit code: 0x00–0x7F (0–127)
+  0x00–0x1F  C0 control characters (33 controls including DEL)
+  0x20       space
+  0x21–0x7E  printable characters (94)
+  0x7F       DEL
+
+Caret notation:  ^X  = code of X XOR 0x40   (^@ = 0x00, ^A = 0x01, ^[ = 0x1B, ^? = 0x7F)
+Case:            lower = upper | 0x20       ('A' = 0x41, 'a' = 0x61)
+Digits:          value = c − '0'            ('0' = 0x30)</pre>
+    <p> Control-character names follow ANSI X3.4 / ECMA-6 (ISO 646) and ECMA-48. The C escape column lists the shortest portable spelling; codes without a named escape use <code>\xNN</code>. </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>The control characters you still meet</h2>
+    <p> Most of the 33 control codes are teletype history, but a handful are everywhere in firmware. <strong>CR</strong> (<code>\r</code>, 0x0D) terminates AT commands — modems expect <code>AT\r</code>, and many reply with <code>\r\n</code>. <strong>LF</strong> (<code>\n</code>, 0x0A) ends lines on Unix and in most logs. <strong>NUL</strong> terminates C strings, so a binary payload with a 0x00 inside will be cut short by <code>strlen</code> or <code>printf("%s")</code>. <strong>XON/XOFF</strong> (DC1 0x11, DC3 0x13) implement software flow control on UARTs, which is why binary data over such a link must be escaped. <strong>ESC</strong> (0x1B) starts ANSI terminal sequences such as <code>\x1B[31m</code> for red text. <strong>SUB</strong> (0x1A, Ctrl-Z) ends an SMS in <code>AT+CMGS</code>, and STX/ETX or DLE often frame binary protocols. </p>
+
+    <h2>C escape pitfalls</h2>
+    <ul>
+      <li> <strong>Hex escapes are greedy.</strong> <code>"\x1BA"</code> is not ESC followed by “A”: the compiler reads <code>\x1BA</code> as one escape, which is out of range for a char. Split the literal: <code>"\x1B" "A"</code>. The text converter above does this for you. </li>
+      <li> <strong>Octal escapes take up to three digits.</strong> <code>"\0" "1"</code> is NUL then “1”, but <code>"\01"</code> is a single 0x01. </li>
+      <li> <strong><code>\e</code> is not standard C.</strong> GCC and Clang accept it for ESC, but MSVC and IAR do not — use <code>\x1B</code> or <code>\033</code>. </li>
+      <li> <strong><code>char</code> may be signed.</strong> On x86 and many compilers <code>char</code> is signed, on Arm it is unsigned by default. Bytes above 0x7F then compare or index differently: use <code>uint8_t</code> for binary data and cast to <code>unsigned char</code> before calling <code>isdigit()</code> and friends. </li>
+    </ul>
+
+    <h2>ASCII is 7 bits; your text may not be</h2>
+    <p> Everything above 0x7F is not ASCII. Code pages such as Latin-1 assign those bytes to accented letters, but anything modern sends UTF-8, where “é” is two bytes (C3 A9) and “€” three (E2 82 AC). That matters for buffer sizes, LCD fonts and protocols that only accept printable ASCII. The text converter flags every non-ASCII character with its UTF-8 bytes. For bytes and C arrays, use the <a href={toolUrl('bytes')}>Bytes &amp; Endianness</a> tool; for bit patterns, the <a href={toolUrl('binary')}>Binary / Hex toolkit</a>. </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, setResult, show } from '../../scripts/tool-client';
+  import { ASCII, cStringLiteral, inGroup, matchesQuery, textToBytes, type AsciiGroup } from '../../lib/ascii';
+
+  const form = document.getElementById('ascii-form') as HTMLFormElement;
+  const hidden = form.elements.namedItem('c') as HTMLInputElement;
+  const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>('#ascii-table tbody tr'));
+  const GROUPS: AsciiGroup[] = ['all', 'control', 'printable', 'digit', 'upper', 'lower', 'punct'];
+  let run: () => void = () => {};
+  let selected = -1;
+  let lastQuery = '';
+
+  function select(code: number): void {
+    const e = ASCII[code];
+    if (!e) return;
+    selected = code;
+    hidden.value = String(code);
+    for (const r of rows) {
+      const on = Number(r.dataset.code) === code;
+      r.classList.toggle('is-current', on);
+      r.querySelector('.ch')?.setAttribute('aria-pressed', String(on));
+    }
+    setResult('glyph', e.isControl || e.code === 32 ? e.abbr! : e.char);
+    setResult('name', e.abbr && e.code !== 32 ? `${e.abbr} — ${e.name}` : e.name);
+    setResult('aka', e.aka ? `Also: ${e.aka}` : ' ');
+    setResult('d-dec', e.dec);
+    setResult('d-hex', `0x${e.hex}`);
+    setResult('d-oct', `0${e.oct}`);
+    setResult('d-bin', `0b${e.bin.padStart(8, '0')}`);
+    setResult('d-c', `'${e.cEscape}'`);
+    setResult('d-caret', e.caret ?? '—');
+    setResult('d-uni', `U+${e.hex.padStart(4, '0')}`);
+    setResult('d-html', `&#${e.code};`);
+    setResult('d-url', `%${e.hex}`);
+  }
+
+  function filter(q: string, g: AsciiGroup): number[] {
+    const visible: number[] = [];
+    for (const r of rows) {
+      const e = ASCII[Number(r.dataset.code)];
+      const on = inGroup(e, g) && matchesQuery(e, q);
+      r.hidden = !on;
+      if (on) visible.push(e.code);
+    }
+    setResult('count', `${visible.length} of 128`);
+    show('ascii-empty', visible.length === 0);
+    return visible;
+  }
+
+  function showDetail(): void {
+    const detail = document.getElementById('detail')!;
+    const r = detail.getBoundingClientRect();
+    if (r.top < 0 || r.top > window.innerHeight - 80) {
+      detail.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
+  }
+
+  document.getElementById('ascii-table')!.addEventListener('click', (ev) => {
+    const tr = (ev.target as HTMLElement).closest<HTMLTableRowElement>('tr[data-code]');
+    if (!tr) return;
+    select(Number(tr.dataset.code));
+    run();
+    if (getComputedStyle(document.getElementById('detail')!).position !== 'sticky') showDetail();
+  });
+
+  // Up / Down move between visible rows when a row button has focus.
+  document.getElementById('ascii-table')!.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'ArrowDown' && ev.key !== 'ArrowUp') return;
+    const btn = (ev.target as HTMLElement).closest<HTMLButtonElement>('.ch');
+    if (!btn) return;
+    const visible = rows.filter((r) => !r.hidden);
+    const i = visible.findIndex((r) => r.contains(btn));
+    const next = visible[i + (ev.key === 'ArrowDown' ? 1 : -1)];
+    if (!next) return;
+    ev.preventDefault();
+    const code = Number(next.dataset.code);
+    select(code);
+    next.querySelector<HTMLButtonElement>('.ch')!.focus();
+    run();
+  });
+
+  const hex = (b: number) => b.toString(16).toUpperCase().padStart(2, '0');
+
+  run = bindForm(
+    form,
+    (v) => {
+      const g = (GROUPS.includes(v.g as AsciiGroup) ? v.g : 'all') as AsciiGroup;
+      const visible = filter(v.q, g);
+      // A search that narrows to one character selects it.
+      if (v.q !== lastQuery && visible.length === 1) select(visible[0]);
+      else {
+        const c = Number(v.c);
+        if (c !== selected) select(Number.isInteger(c) && c >= 0 && c < 128 ? c : 65);
+      }
+      lastQuery = v.q;
+      v.c = hidden.value;
+
+      const t = textToBytes(v.txt ?? '');
+      setResult('t-count', String(t.bytes.length));
+      setResult('t-hex', t.bytes.length ? t.bytes.map(hex).join(' ') : '—');
+      setResult('t-dec', t.bytes.length ? t.bytes.join(' ') : '—');
+      setResult('t-c', cStringLiteral(t.bytes));
+      const warn = document.getElementById('t-warn')!;
+      if (t.nonAscii.length) {
+        const list = t.nonAscii
+          .slice(0, 6)
+          .map((n) => `“${n.char}” (U+${n.codePoint.toString(16).toUpperCase().padStart(4, '0')}) = ${n.utf8.map(hex).join(' ')}`)
+          .join(', ');
+        warn.textContent = `Not ASCII: ${list}${t.nonAscii.length > 6 ? ', …' : ''}. These are UTF-8 bytes; a device expecting ASCII or Latin-1 will show something else.`;
+        warn.hidden = false;
+      } else warn.hidden = true;
+    },
+    { skipUrl: ['txt'] },
+  );
+</script>
+
+<style>
+  .ascii-layout {
+    display: grid;
+    gap: var(--s4);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'find' 'detail' 'table';
+    align-items: start;
+  }
+  @media (min-width: 60rem) {
+    .ascii-layout {
+      grid-template-columns: minmax(0, 1fr) 20rem;
+      grid-template-areas: 'find detail' 'table detail';
+    }
+    .detail {
+      position: sticky;
+      top: var(--s4);
+    }
+  }
+  .find {
+    grid-area: find;
+  }
+  .detail {
+    grid-area: detail;
+    margin-top: 0 !important;
+  }
+  .ascii-wrap {
+    grid-area: table;
+  }
+  @media (min-width: 36rem) {
+    .find :global(.fields) {
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+    }
+  }
+  .count {
+    margin-top: var(--s3);
+  }
+  .glyph-row {
+    display: flex;
+    align-items: center;
+    gap: var(--s4);
+    margin-bottom: var(--s3);
+  }
+  .glyph {
+    display: grid;
+    place-items: center;
+    min-width: 4.5rem;
+    height: 4.5rem;
+    padding: 0 var(--s2);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 2.25rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .glyph-name {
+    margin: 0;
+    font-weight: 650;
+  }
+  .glyph-row .help {
+    margin: 0;
+  }
+  .detail :global(.result output) {
+    font-size: var(--text-base);
+  }
+  table.ascii tbody tr {
+    cursor: pointer;
+  }
+  table.ascii tbody tr:hover td {
+    background: var(--bg);
+  }
+  table.ascii tbody tr.is-current td {
+    background: var(--accent-soft);
+  }
+  table.ascii td {
+    padding-top: 0.3rem;
+    padding-bottom: 0.3rem;
+  }
+  table.ascii td.name {
+    color: var(--ink-muted);
+    white-space: normal;
+    min-width: 10rem;
+  }
+  .ch {
+    font: inherit;
+    font-family: var(--font-mono);
+    font-weight: 650;
+    font-size: var(--text-base);
+    min-width: 2.25rem;
+    padding: 0.05rem 0.4rem;
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    cursor: pointer;
+    text-align: center;
+  }
+  .ch:hover {
+    border-color: var(--rule);
+  }
+  .ch[aria-pressed='true'] {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .abbr {
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    color: var(--ink-muted);
+    padding: 0 0.2rem;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+  }
+  .empty {
+    padding: var(--s4);
+    margin: 0;
+    color: var(--ink-muted);
+  }
+  textarea {
+    min-height: 4.5rem;
+  }
+</style>

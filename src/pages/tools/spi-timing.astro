@@ -1,0 +1,376 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { spiDiagramSvg } from '../../lib/spi-timing';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'ST RM0090 — STM32F405/415, F407/417, F427/437, F429/439 reference manual, §28.3.1 clock phase and polarity, §28.5.1 SPI_CR1',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0090-stm32f405415-stm32f407417-stm32f427437-and-stm32f429439-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  { title: 'Motorola / NXP — SPI Block Guide V04.01', note: 'CPOL and CPHA definitions' },
+  { title: 'STM32 datasheets — “SPI characteristics” table', note: 'tsu(MI), tv(MO), fSCK max per GPIO speed' },
+  { title: 'Slave device datasheet — AC characteristics', note: 'tCLQV / tV (output valid), tDVCH / tSU (input set-up), fSCK max' },
+];
+
+const freqUnits = [
+  { value: 'MHz', label: 'MHz' },
+  { value: 'kHz', label: 'kHz' },
+  { value: 'Hz', label: 'Hz' },
+];
+const timeUnits = [
+  { value: 'ns', label: 'ns' },
+  { value: 'us', label: 'µs' },
+];
+---
+
+<ToolLayout slug="spi-timing" references={references}>
+  <form id="spi-form" novalidate>
+    <div class="tool-grid">
+      <div class="panel">
+        <h2 class="panel-title">Clock</h2>
+        <div class="fields">
+          <NumberInput name="clk" label="Peripheral clock" value="84" units={freqUnits} unitValue="MHz" help="APB clock feeding the SPI (PCLK)" />
+          <NumberInput name="fmax" label="Slave maximum SCK" value="20" units={freqUnits} unitValue="MHz" help="From the slave datasheet" />
+        </div>
+        <div class="fields fields--wide" style="margin-top: var(--s4)">
+          <Segmented
+            name="fam"
+            label="Prescaler"
+            value="stm32"
+            options={[
+              { value: 'stm32', label: 'STM32 BR (÷2 … ÷256)' },
+              { value: 'integer', label: 'Any integer divider' },
+            ]}
+          />
+          <Segmented
+            name="mode"
+            label="SPI mode"
+            value="0"
+            options={[0, 1, 2, 3].map((m) => ({ value: String(m), label: `Mode ${m}` }))}
+          />
+        </div>
+
+        <h2 class="panel-title" style="margin-top: var(--s5)">Transfer</h2>
+        <div class="fields">
+          <NumberInput name="bits" label="Bits per frame" value="8" inputmode="numeric" help="Data size, 4–32" />
+          <NumberInput name="frames" label="Frames per transaction" value="256" inputmode="numeric" help="e.g. one 256-byte flash page" />
+          <NumberInput name="gap" label="Gap between frames" value="0" units={timeUnits} unitValue="ns" help="0 for DMA back-to-back" />
+          <NumberInput name="css" label="CS set-up / hold (each)" value="100" units={timeUnits} unitValue="ns" />
+        </div>
+
+        <h2 class="panel-title" style="margin-top: var(--s5)">Signal timing <span class="muted">(optional)</span></h2>
+        <div class="fields">
+          <NumberInput name="stv" label="Slave output valid tV" value="8" unit="ns" help="MISO valid after SCK edge" />
+          <NumberInput name="stsu" label="Slave input set-up tSU" value="3" unit="ns" help="MOSI before SCK edge" />
+          <NumberInput name="mtsu" label="MCU input set-up tsu(MI)" value="4" unit="ns" help="MCU datasheet" />
+          <NumberInput name="mtv" label="MCU output valid tv(MO)" value="5" unit="ns" help="MCU datasheet" />
+          <NumberInput name="len" label="Trace length" value="50" unit="mm" help="About 6.7 ps/mm on FR-4" />
+          <NumberInput name="buf" label="Buffer / level-shifter delay" value="0" unit="ns" help="One way" />
+        </div>
+      </div>
+
+      <section class="panel" aria-labelledby="spi-results">
+        <h2 class="panel-title" id="spi-results">Results</h2>
+        <dl class="results">
+          <ResultRow label="SCK frequency" name="sck" primary />
+          <ResultRow label="Divider" name="div" />
+          <ResultRow label="Limited by" name="limit" />
+          <ResultRow label="SCK period" name="period" />
+          <ResultRow label="Max SCK, read path (MISO)" name="fread" />
+          <ResultRow label="Max SCK, write path (MOSI)" name="fwrite" />
+          <ResultRow label="Transaction time (CS low)" name="total" />
+          <ResultRow label="Throughput" name="tput" />
+          <ResultRow label="Throughput in bytes" name="tputB" />
+          <ResultRow label="Bus efficiency" name="eff" unit="%" />
+        </dl>
+        <p class="note note--warn" id="clk-note" hidden></p>
+      </section>
+    </div>
+
+    <section class="section" aria-labelledby="mode-title">
+      <h2 id="mode-title">Mode <span data-result="modeNum">0</span>: CPOL = <span data-result="cpol">0</span>, CPHA = <span data-result="cpha">0</span></h2>
+      <figure class="diagram" id="diagram">
+        <Fragment set:html={spiDiagramSvg(0)} />
+      </figure>
+      <p class="note" id="mode-note">SCK idles low. Data is sampled on the rising edge and changes on the falling edge.</p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Mode</th><th>CPOL</th><th>CPHA</th><th>SCK idle</th><th>Sample edge</th><th>Shift edge</th><th>Common devices</th>
+            </tr>
+          </thead>
+          <tbody id="mode-body">
+            <tr data-mode="0"><td class="mono">0</td><td>0</td><td>0</td><td>low</td><td>rising</td><td>falling</td><td>Most SPI flash, SD cards, many sensors and ADCs</td></tr>
+            <tr data-mode="1"><td class="mono">1</td><td>0</td><td>1</td><td>low</td><td>falling</td><td>rising</td><td>Less common; check the datasheet</td></tr>
+            <tr data-mode="2"><td class="mono">2</td><td>1</td><td>0</td><td>high</td><td>falling</td><td>rising</td><td>Rare</td></tr>
+            <tr data-mode="3"><td class="mono">3</td><td>1</td><td>1</td><td>high</td><td>rising</td><td>falling</td><td>SPI flash (also mode 0), ADXL345, many MEMS sensors</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="pre-title" id="pre-section">
+      <h2 id="pre-title">Every STM32 prescaler setting</h2>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>BR[2:0]</th><th class="num">Divider</th><th class="num">SCK</th><th class="num">Transaction time</th><th></th></tr>
+          </thead>
+          <tbody id="pre-body"></tbody>
+        </table>
+      </div>
+      <CodeOutput name="code" label="C initialisation" />
+      <p class="note">
+        STM32H7, U5 and other newer SPI blocks put the same divider in SPI_CFG1.MBR and CPOL/CPHA in SPI_CFG2; the HAL
+        constants are unchanged.
+      </p>
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>SCK              = f_PCLK / divider          STM32: divider = 2^(BR + 1), BR = 0 … 7
+Chosen divider   = smallest divider with SCK ≤ min(slave max, read limit, write limit)
+
+Read path  (MISO):  T/2 ≥ tV(slave) + 2·tpd + tsu(MCU)
+Write path (MOSI):  T/2 ≥ tv(MCU) + tSU(slave)
+tpd              = trace length · 6.7 ps/mm + buffer delay
+
+Transaction time = tCS,setup + N·bits / SCK + (N − 1)·gap + tCS,hold
+Throughput       = N·bits / transaction time
+
+Mode = 2·CPOL + CPHA
+CPHA = 0: sample on the leading (first) SCK edge, data valid before it
+CPHA = 1: shift on the leading edge, sample on the trailing edge</pre>
+    <p>
+      The timing budget assumes a 50 % duty-cycle clock and that each side samples half a period after the other
+      launches data. On the read path SCK must reach the slave and MISO must come back, so the board delay counts
+      twice; on the write path clock and data travel together and it cancels. Hold times are usually met with margin and
+      are not checked.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Getting SPI clock and mode right</h2>
+    <p>
+      SPI has no addressing, no acknowledge and no standard speed, so two settings decide whether a link works: the
+      clock mode and the clock frequency. A mode mismatch rarely fails completely. More often every byte comes back
+      shifted by one bit, or works at low speed and breaks at high speed, because the master samples on the edge where
+      the slave is changing its output.
+    </p>
+    <h3>Reading CPOL and CPHA from a datasheet</h3>
+    <p>
+      Look at the slave's timing diagram. If SCK sits low between transfers, CPOL = 0; if it sits high, CPOL = 1. Then
+      find the edge on which the slave reads MOSI: if it is the first edge after CS falls, CPHA = 0, otherwise CPHA = 1.
+      Many devices, such as most SPI NOR flash, accept both mode 0 and mode 3 because they only care that data is
+      sampled on the rising edge.
+    </p>
+    <h3>Why the fastest setting is often too fast</h3>
+    <p>
+      An STM32 F4 at 84 MHz APB2 can clock SPI at 42 MHz, but the slave's output delay, the board trace and the MCU's
+      input set-up time all have to fit in half a clock period. At 40 MHz that is 12.5 ns. A slave with an 8 ns
+      output-valid time and 5 cm of trace leaves very little margin, which is why reads often fail before writes do.
+      Some SPI blocks can delay their sampling point (for example the SAMPLE bit of NXP's LPSPI) to recover the read path. Fast GPIO
+      speed settings also matter: at the lowest slew rate an STM32 pin cannot toggle at tens of MHz.
+    </p>
+    <p>
+      For the other serial buses, see the <a href={toolUrl('i2c-timing')}>STM32 I²C timing</a>,
+      <a href={toolUrl('uart-baud')}>UART baud rate</a> and <a href={toolUrl('can-timing')}>CAN bit timing</a> calculators.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<style>
+  .muted {
+    color: var(--ink-muted);
+    font-weight: 400;
+  }
+  .diagram {
+    margin: 0 0 var(--s3);
+    padding: var(--s3);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    overflow-x: auto;
+  }
+  :global(.spi-diagram) {
+    display: block;
+    width: 100%;
+    min-width: 30rem;
+    height: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    fill: var(--ink-muted);
+  }
+  :global(.spi-diagram .sd-sig) {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+  }
+  :global(.spi-diagram .sd-clk) {
+    stroke: var(--accent);
+  }
+  :global(.spi-diagram .sd-sample) {
+    stroke: var(--accent);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+    opacity: 0.55;
+  }
+  :global(.spi-diagram .sd-name) {
+    fill: var(--ink);
+    font-weight: 650;
+  }
+</style>
+
+<script>
+  import { bindForm, clearResults, esc, setError, setResult, show } from '../../scripts/tool-client';
+  import { applyUnit, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import {
+    FR4_DELAY_S_PER_M,
+    pickClock,
+    signalLimits,
+    spiDiagramSvg,
+    spiMode,
+    stm32Options,
+    transferTime,
+    type PrescalerFamily,
+    type SpiModeNumber,
+    type TransferParams,
+  } from '../../lib/spi-timing';
+
+  const FREQ: Record<string, number> = { Hz: 1, kHz: 1e3, MHz: 1e6 };
+  const TIME: Record<string, number> = { ns: 1e-9, us: 1e-6 };
+  const RESULTS = ['sck', 'div', 'limit', 'period', 'fread', 'fwrite', 'total', 'tput', 'tputB', 'eff', 'code'];
+  const form = document.getElementById('spi-form') as HTMLFormElement;
+  const preBody = document.getElementById('pre-body')!;
+  const diagram = document.getElementById('diagram')!;
+  let drawnMode = 0;
+
+  const hz = (f: number) => (Number.isFinite(f) ? formatSI(f, 'Hz', 4) : 'no limit');
+  const sec = (s: number) => formatSI(s, 's', 4);
+
+  /** Parse a field; returns NaN and shows an error when it is not a number in [min, max]. */
+  function field(name: string, raw: string, label: string, min: number, max = Infinity, integer = false, mult = 1): number {
+    const v = parseNumber(raw);
+    const val = v === null ? NaN : v * mult;
+    const bad = v === null || v < min || v > max || (integer && !Number.isInteger(v));
+    setError(name, bad ? `${label} must be ${integer ? 'a whole number' : 'a number'}${Number.isFinite(max) ? ` from ${min} to ${max}` : ` of ${min} or more`}.` : null);
+    return bad ? NaN : val;
+  }
+
+  function freqField(name: string, raw: string, unit: string, label: string): number {
+    const v = parseNumber(raw);
+    const val = v === null ? NaN : applyUnit(raw, v, FREQ[unit] ?? 1e6);
+    setError(name, !(val > 0) ? `${label} must be a positive number.` : null);
+    return val > 0 ? val : NaN;
+  }
+
+  function code(br: number, mode: SpiModeNumber, bits: number): string {
+    const m = spiMode(mode);
+    const div = 2 ** (br + 1);
+    const cr1 = ['SPI_CR1_MSTR', 'SPI_CR1_SSM', 'SPI_CR1_SSI', `(${br}U << SPI_CR1_BR_Pos)`];
+    if (m.cpol) cr1.push('SPI_CR1_CPOL');
+    if (m.cpha) cr1.push('SPI_CR1_CPHA');
+    const lines = [
+      '/* HAL */',
+      'hspi1.Init.Mode = SPI_MODE_MASTER;',
+      `hspi1.Init.CLKPolarity = SPI_POLARITY_${m.cpol ? 'HIGH' : 'LOW'};`,
+      `hspi1.Init.CLKPhase = SPI_PHASE_${m.cpha ? '2EDGE' : '1EDGE'};`,
+      `hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_${div};`,
+    ];
+    if (bits === 8 || bits === 16) lines.push(`hspi1.Init.DataSize = SPI_DATASIZE_${bits}BIT;`);
+    lines.push('', '/* Register level (STM32F1/F2/F4/L1 SPI_CR1), software NSS */', `SPI1->CR1 = ${cr1.join('\n          | ')};`, 'SPI1->CR1 |= SPI_CR1_SPE;');
+    return lines.join('\n');
+  }
+
+  bindForm(form, (v) => {
+    const mode = (Number(v.mode) & 3) as SpiModeNumber;
+    const m = spiMode(mode);
+    if (mode !== drawnMode) {
+      diagram.innerHTML = spiDiagramSvg(mode);
+      drawnMode = mode;
+    }
+    setResult('modeNum', String(mode));
+    setResult('cpol', String(m.cpol));
+    setResult('cpha', String(m.cpha));
+    document.getElementById('mode-note')!.textContent = `SCK idles ${m.idle}. Data is sampled on the ${m.sample} edge and changes on the ${m.shift} edge${m.cpha === 0 ? '; the first bit must be on MOSI/MISO before the first edge, as soon as CS falls' : ''}.`;
+    document.querySelectorAll<HTMLElement>('#mode-body tr').forEach((tr) => tr.classList.toggle('is-current', tr.dataset.mode === String(mode)));
+
+    const fam: PrescalerFamily = v.fam === 'integer' ? 'integer' : 'stm32';
+    show('pre-section', fam === 'stm32');
+
+    const clk = freqField('clk', v.clk, v.clkUnit, 'Peripheral clock');
+    const fmax = freqField('fmax', v.fmax, v.fmaxUnit, 'Slave maximum SCK');
+    const bits = field('bits', v.bits, 'Bits per frame', 4, 32, true);
+    const frames = field('frames', v.frames, 'Frames', 1, 1e9, true);
+    const gap = field('gap', v.gap, 'Gap', 0, Infinity, false, TIME[v.gapUnit] ?? 1e-9);
+    const css = field('css', v.css, 'CS set-up / hold', 0, Infinity, false, TIME[v.cssUnit] ?? 1e-9);
+    const ns = (name: string, label: string) => field(name, v[name], label, 0, Infinity, false, 1e-9);
+    const st = { slaveTv: ns('stv', 'tV'), slaveTsu: ns('stsu', 'tSU'), masterTsu: ns('mtsu', 'tsu(MI)'), masterTv: ns('mtv', 'tv(MO)') };
+    const len = field('len', v.len, 'Trace length', 0, Infinity, false, 1e-3);
+    const buf = ns('buf', 'Buffer delay');
+
+    const nums = [clk, fmax, bits, frames, gap, css, st.slaveTv, st.slaveTsu, st.masterTsu, st.masterTv, len, buf];
+    if (nums.some((x) => Number.isNaN(x))) {
+      clearResults(...RESULTS);
+      preBody.innerHTML = '';
+      show('clk-note', false);
+      return;
+    }
+
+    const lim = signalLimits({ ...st, tpd: len * FR4_DELAY_S_PER_M + buf });
+    setResult('fread', hz(lim.fRead));
+    setResult('fwrite', hz(lim.fWrite));
+    const limits: [number, string][] = [
+      [fmax, 'slave max'],
+      [lim.fRead, 'read timing'],
+      [lim.fWrite, 'write timing'],
+    ];
+    const [cap, capName] = limits.reduce((a, b) => (b[0] < a[0] ? b : a));
+
+    const pick = pickClock(clk, cap, fam);
+    const note = document.getElementById('clk-note')!;
+    const tx = (sck: number): TransferParams => ({ sck, frameBits: bits, frames, gap, csSetup: css, csHold: css });
+
+    if (fam === 'stm32') {
+      preBody.innerHTML = stm32Options(clk)
+        .map((o) => {
+          const ok = o.sck <= cap * (1 + 1e-12);
+          const cur = pick && pick.div === o.div;
+          const badge = ok ? '' : ' <span class="badge badge--warn">too fast</span>';
+          return `<tr${cur ? ' class="is-current"' : ''}><td class="mono">${o.br} (0b${o.br!.toString(2).padStart(3, '0')})</td><td class="num">÷${o.div}</td><td class="num">${esc(hz(o.sck))}${badge}</td><td class="num">${esc(sec(transferTime(tx(o.sck)).total))}</td><td></td></tr>`;
+        })
+        .join('');
+    }
+
+    if (!pick) {
+      clearResults(...RESULTS.filter((r) => r !== 'fread' && r !== 'fwrite'));
+      note.textContent = `Even the largest divider gives ${hz(clk / (fam === 'stm32' ? 256 : 65536))}, faster than the ${hz(cap)} limit. Lower the peripheral clock (APB prescaler).`;
+      show('clk-note', true);
+      return;
+    }
+
+    setResult('sck', hz(pick.sck));
+    setResult('div', pick.br === null ? `÷${pick.div}` : `÷${pick.div} (BR = ${pick.br})`);
+    setResult('limit', `${capName} (${hz(cap)})`);
+    setResult('period', sec(1 / pick.sck));
+    const r = transferTime(tx(pick.sck));
+    setResult('total', sec(r.total));
+    setResult('tput', formatSI(r.throughput, 'bit/s', 4));
+    setResult('tputB', formatSI(r.throughput / 8, 'B/s', 4));
+    setResult('eff', formatNumber(r.efficiency * 100, 4));
+    setResult('code', pick.br === null ? '—' : code(pick.br, mode, bits));
+
+    const ratio = pick.sck / cap;
+    if (ratio < 0.6) {
+      note.textContent = `The divider steps leave SCK at ${formatNumber(ratio * 100, 3)} % of the ${hz(cap)} limit. A different peripheral clock could get closer.`;
+      show('clk-note', true);
+    } else show('clk-note', false);
+  });
+</script>

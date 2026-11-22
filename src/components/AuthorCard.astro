@@ -1,0 +1,81 @@
+---
+// "Built by" card: name, role, a short note and GitHub / LinkedIn links.
+import ContactLinks from './ContactLinks.astro';
+import { SITE } from '../config';
+---
+
+<section class="author" aria-labelledby="author-title">
+  <div class="author-id">
+    <span class="avatar" aria-hidden="true">{SITE.owner.split(' ').map((w) => w[0]).join('').slice(0, 2)}</span>
+    <div>
+      <p class="author-kicker">Built by</p>
+      <h2 id="author-title">{SITE.owner}</h2>
+      <p class="author-role">{SITE.role}</p>
+    </div>
+  </div>
+  <p class="author-text">
+    {SITE.name} collects the calculations I kept redoing by hand: power-saving timers, radio airtime, register
+    values, dividers. Every formula is unit-tested and cites its spec. Found a mistake or missing a tool? Message me
+    on GitHub or LinkedIn.
+  </p>
+  <div class="author-links">
+    <ContactLinks compact />
+  </div>
+</section>
+
+<style>
+  .author {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s4) var(--s6);
+    align-items: center;
+    padding: var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+  }
+  @media (min-width: 60rem) {
+    .author {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+  }
+  .author-id {
+    display: flex;
+    align-items: center;
+    gap: var(--s3);
+  }
+  .avatar {
+    display: grid;
+    place-items: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: var(--text-lg);
+    letter-spacing: 0.02em;
+    color: #fff;
+    background: linear-gradient(145deg, #2a5cc0, #173a80);
+    box-shadow: var(--shadow);
+    flex: 0 0 auto;
+  }
+  .author-kicker {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--ink-muted);
+  }
+  .author h2 {
+    margin: 0;
+    font-size: var(--text-xl);
+  }
+  .author-role {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+  }
+  .author-text {
+    margin: 0;
+    color: var(--ink-muted);
+    max-width: 60ch;
+  }
+</style>

@@ -1,0 +1,358 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'ST RM0008 — STM32F101/102/103/105/107 reference manual',
+    note: '§7.2 clock tree (timer clock ×2 when APB prescaler ≠ 1), §15.3.1 time-base unit, §15.3.9 PWM mode',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0008-stm32f101xx-stm32f102xx-stm32f103xx-stm32f105xx-and-stm32f107xx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  {
+    title: 'ST RM0090 — STM32F405/415, F407/417, F427/437, F429/439 reference manual',
+    note: '§6.2 clocks (timer clock ×2, TIMPRE), §18.3 TIM2–TIM5 time-base and PWM mode',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0090-stm32f405415-stm32f407417-stm32f427437-and-stm32f429439-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  { title: 'ST AN4013 — STM32 cross-series timer overview', href: 'https://www.st.com/resource/en/application_note/an4013-introduction-to-timers-for-stm32-mcus-stmicroelectronics.pdf' },
+];
+
+const freqUnits = [
+  { value: 'MHz', label: 'MHz' },
+  { value: 'kHz', label: 'kHz' },
+  { value: 'Hz', label: 'Hz' },
+];
+---
+
+<ToolLayout slug="mcu-timer" references={references}>
+  <div class="tool-grid">
+    <form id="tim-form" class="panel" novalidate>
+      <h2 class="panel-title">Inputs</h2>
+      <div class="fields">
+        <NumberInput name="clk" label="Timer clock" value="72" units={freqUnits} unitValue="MHz" help="TIMxCLK, not PCLK — see below" />
+        <SelectInput
+          name="cnt"
+          label="Counter width"
+          value="16"
+          options={[
+            { value: '16', label: '16-bit (TIM1, TIM3, TIM4…)' },
+            { value: '32', label: '32-bit (TIM2, TIM5)' },
+          ]}
+        />
+        <SelectInput
+          name="pscw"
+          label="Prescaler width"
+          value="16"
+          options={[
+            { value: '16', label: '16-bit (STM32)' },
+            { value: '8', label: '8-bit' },
+          ]}
+        />
+      </div>
+      <div class="fields fields--wide" style="margin-top: var(--s4)">
+        <Segmented
+          name="mode"
+          label="Target"
+          options={[
+            { value: 'freq', label: 'Frequency' },
+            { value: 'period', label: 'Period' },
+          ]}
+        />
+      </div>
+      <div class="fields" style="margin-top: var(--s4)">
+        <div data-when="freq"><NumberInput name="f" label="Target frequency" value="1" units={freqUnits} unitValue="kHz" /></div>
+        <div data-when="period" hidden>
+          <NumberInput
+            name="t"
+            label="Target period"
+            value="1"
+            units={[
+              { value: 's', label: 's' },
+              { value: 'ms', label: 'ms' },
+              { value: 'us', label: 'µs' },
+            ]}
+            unitValue="ms"
+          />
+        </div>
+        <NumberInput name="duty" label="PWM duty cycle" value="50" unit="%" />
+      </div>
+      <input type="hidden" name="sel" value="0" />
+    </form>
+
+    <section class="panel" aria-labelledby="tim-results">
+      <h2 class="panel-title" id="tim-results">Best solution <span id="exact-badge" class="badge badge--ok" hidden>exact</span></h2>
+      <dl class="results">
+        <ResultRow label="Actual frequency" name="freq" primary />
+        <ResultRow label="TIMx_PSC" name="psc" />
+        <ResultRow label="TIMx_ARR" name="arr" />
+        <ResultRow label="Period" name="period" />
+        <ResultRow label="Error" name="ppm" unit="ppm" />
+        <ResultRow label="Error" name="pct" unit="%" />
+        <ResultRow label="PWM resolution" name="bits" unit="bits" />
+      </dl>
+      <p class="note note--warn" id="range-note" hidden></p>
+
+      <h3 class="sub">PWM (mode 1, edge-aligned)</h3>
+      <dl class="results">
+        <ResultRow label="TIMx_CCRx" name="ccr" />
+        <ResultRow label="Actual duty cycle" name="duty" unit="%" />
+        <ResultRow label="Duty step (1 LSB)" name="step" unit="%" />
+      </dl>
+    </section>
+  </div>
+
+  <section class="section" aria-labelledby="tim-table">
+    <div class="sec-head">
+      <h2 id="tim-table">Top solutions</h2>
+      <button class="copy-btn" type="button" id="copy-table" data-copy-text="">Copy table</button>
+    </div>
+    <p class="help">Ranked by error, then by largest ARR (finest PWM steps). Pick a row to use it for PWM and code.</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th class="num">PSC</th>
+            <th class="num">ARR</th>
+            <th class="num">Frequency</th>
+            <th class="num">Period</th>
+            <th class="num">Error (ppm)</th>
+            <th class="num">Error (%)</th>
+            <th class="num">PWM bits</th>
+            <th><span class="visually-hidden">Select</span></th>
+          </tr>
+        </thead>
+        <tbody id="tim-rows"></tbody>
+      </table>
+    </div>
+    <CodeOutput name="code" label="C initialisation" />
+  </section>
+
+  <Fragment slot="formula">
+    <pre>f_out = f_clk / ((PSC + 1) · (ARR + 1))
+T_out = 1 / f_out
+
+For every PSC in 0 … 2^pscBits − 1:
+  ARR + 1 = round(f_clk / (f_target · (PSC + 1)))   clamped to 2 … 2^counterBits
+  (the neighbouring value is also tried, since rounding the divider is not
+   exactly the same as rounding the frequency)
+Rank by |error|, then by largest ARR.
+
+PWM mode 1, up-counting:  output active while CNT &lt; CCR
+  duty = CCR / (ARR + 1)       CCR = round(duty% · (ARR + 1) / 100)
+  CCR = 0 → 0 %,  CCR ≥ ARR + 1 → 100 %
+  resolution = log2(ARR + 1) bits</pre>
+    <p>
+      The search is exhaustive (65 536 prescaler values for a 16-bit prescaler), so the table really is the best
+      the hardware can do, not the first solution a greedy algorithm finds.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Getting STM32 timer frequencies right</h2>
+    <h3>Use the timer clock, not the bus clock</h3>
+    <p>
+      The most common mistake is plugging PCLK into this formula. On STM32F1, F2, F4, F7, L4 and most other families
+      the clock that reaches a timer is <strong>twice the APB clock whenever the APB prescaler is not 1</strong>
+      (RM0090 §6.2: "if the APB prescaler is 1, the timer clock frequencies are set to the same frequency as that of
+      the APB domain… otherwise, they are set to twice (×2)"). A typical STM32F407 runs at 168 MHz with APB1 = 42 MHz
+      (÷4) and APB2 = 84 MHz (÷2), so TIM2–TIM7 and TIM12–14 are clocked at 84 MHz and TIM1, TIM8–TIM11 at 168 MHz.
+      An STM32F103 at 72 MHz with APB1 = 36 MHz (÷2) gives 72 MHz to TIM2–TIM4. On F42x/F43x, F7 and H7 a TIMPRE bit in RCC
+      can raise the multiplier to ×4 (limited to HCLK), so check the clock-tree figure for your part or read the value
+      CubeMX shows as "APBx Timer clocks".
+    </p>
+    <h3>Registers hold "value minus one"</h3>
+    <p>
+      The prescaler divides by PSC + 1 and the counter counts from 0 to ARR inclusive, so a period of 1000 ticks is
+      ARR = 999 and a divide-by-72 prescaler is PSC = 71. CubeMX and the HAL use the same raw values
+      (<code>htim.Init.Prescaler</code>, <code>htim.Init.Period</code>), which is why you see "72-1" and "1000-1"
+      in generated code. ARR = 0 stops the counter, so the shortest period is two ticks.
+    </p>
+    <h3>Choose ARR for resolution, PSC for range</h3>
+    <p>
+      Many PSC/ARR pairs often give the same frequency. For PWM, keep the prescaler as small as possible: the duty cycle
+      can only change in steps of 1/(ARR + 1), so ARR = 35 999 gives 15-bit resolution while ARR = 99 gives under 7
+      bits for the same 1 kHz. For a plain periodic interrupt the choice does not matter; a round ARR such as 999 just
+      makes the counter value easy to read in microseconds. When no pair is exact, the table shows the error in ppm
+      so you can compare it with the tolerance of your crystal (typically 10–50 ppm) — chasing a 0.1 ppm divider error
+      on an HSI clock that is only accurate to 1 % is wasted effort.
+    </p>
+    <h3>Preload and the update event</h3>
+    <p>
+      PSC is always buffered: a new value only takes effect at the next update event. Write <code>TIMx-&gt;EGR = TIM_EGR_UG</code>
+      after configuring the timer so the first period is not the reset-default one (and clear the update flag afterwards if
+      you use the interrupt). Enable ARR preload (ARPE) and CCR preload (OCxPE) when changing the period or duty cycle on the
+      fly, otherwise a write that lands just after the counter passed the new value produces one long glitch period.
+    </p>
+    <p>
+      Center-aligned PWM counts up and down, so its frequency is half the value shown here. For the serial-port divider on the
+      same family, see the <a href={toolUrl('uart-baud')}>UART baud rate calculator</a>; for the IWDG and WWDG timeouts,
+      the <a href={toolUrl('watchdog')}>watchdog calculator</a>.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, setError, setResult, show } from '../../scripts/tool-client';
+  import { applyUnit, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import { pwmCompare, searchTimer, type TimerSolution } from '../../lib/mcu-timer';
+
+  const FREQ: Record<string, number> = { Hz: 1, kHz: 1e3, MHz: 1e6 };
+  const TIME: Record<string, number> = { s: 1, ms: 1e-3, us: 1e-6 };
+  const ALL = ['freq', 'psc', 'arr', 'period', 'ppm', 'pct', 'bits', 'ccr', 'duty', 'step', 'code'];
+  const form = document.getElementById('tim-form') as HTMLFormElement;
+  const rows = document.getElementById('tim-rows')!;
+  const copyTable = document.getElementById('copy-table')!;
+  const rangeNote = document.getElementById('range-note')!;
+
+  function positive(name: string, raw: string, label: string): number | null {
+    const v = parseNumber(raw);
+    if (v === null) return setError(name, `${label} must be a number.`), null;
+    if (v <= 0) return setError(name, `${label} must be greater than zero.`), null;
+    setError(name, null);
+    return v;
+  }
+
+  const signed = (x: number, sig: number) => (x > 0 ? '+' : '') + formatNumber(x, sig);
+
+  function empty() {
+    clearResults(...ALL);
+    rows.innerHTML = '';
+    copyTable.dataset.copyText = '';
+    show('exact-badge', false);
+    show('range-note', false);
+  }
+
+  const run = bindForm(form, (v) => {
+    const mode = v.mode === 'period' ? 'period' : 'freq';
+    document.querySelectorAll<HTMLElement>('[data-when]').forEach((el) => (el.hidden = el.dataset.when !== mode));
+
+    const clkRaw = positive('clk', v.clk, 'Timer clock');
+    const clk = clkRaw === null ? null : applyUnit(v.clk, clkRaw, FREQ[v.clkUnit] ?? 1);
+    let target: number | null = null;
+    if (mode === 'freq') {
+      const f = positive('f', v.f, 'Target frequency');
+      if (f !== null) target = applyUnit(v.f, f, FREQ[v.fUnit] ?? 1);
+    } else {
+      const t = positive('t', v.t, 'Target period');
+      if (t !== null) target = 1 / applyUnit(v.t, t, TIME[v.tUnit] ?? 1);
+    }
+    const duty = parseNumber(v.duty);
+    if (duty === null || duty < 0 || duty > 100) setError('duty', 'Duty cycle must be between 0 and 100 %.');
+    else setError('duty', null);
+
+    if (clk === null || target === null) return empty();
+    if (target > clk / 2) {
+      const msg = `The target is above the maximum of f_clk / 2 = ${formatSI(clk / 2, 'Hz')} (PSC = 0, ARR = 1).`;
+      setError(mode === 'freq' ? 'f' : 't', msg);
+      return empty();
+    }
+
+    const cntBits = v.cnt === '32' ? 32 : 16;
+    const pscBits = v.pscw === '8' ? 8 : 16;
+    const res = searchTimer(clk, target, cntBits, pscBits, 5);
+    const sols = res.solutions;
+    if (sols.length === 0) return empty();
+    const sel = Math.min(sols.length - 1, Math.max(0, Number.parseInt(v.sel, 10) || 0));
+    const s = sols[sel];
+
+    if (target < res.minFreq) {
+      rangeNote.textContent = `The slowest this timer can run is ${formatSI(res.minFreq, 'Hz')} (period ${formatSI(1 / res.minFreq, 's')}). Use a 32-bit timer, a slower clock or count overflows in software.`;
+      show('range-note', true);
+    } else show('range-note', false);
+
+    setResult('freq', formatSI(s.freq, 'Hz', 10));
+    setResult('psc', String(s.psc));
+    setResult('arr', String(s.arr));
+    setResult('period', formatSI(s.period, 's', 10));
+    setResult('ppm', signed(s.error * 1e6, 5));
+    setResult('pct', signed(s.error * 100, 5));
+    setResult('bits', formatNumber(s.bits, 4));
+    show('exact-badge', s.error === 0);
+
+    rows.innerHTML = sols
+      .map(
+        (x: TimerSolution, i: number) => `<tr${i === sel ? ' class="is-current"' : ''}>
+          <td>${i + 1}</td><td class="num">${x.psc}</td><td class="num">${x.arr}</td>
+          <td class="num">${formatSI(x.freq, 'Hz', 10)}</td><td class="num">${formatSI(x.period, 's', 8)}</td>
+          <td class="num">${signed(x.error * 1e6, 5)}</td><td class="num">${signed(x.error * 100, 5)}</td>
+          <td class="num">${formatNumber(x.bits, 4)}</td>
+          <td><button type="button" class="copy-btn" data-use="${i}" aria-pressed="${i === sel}">${i === sel ? 'In use' : 'Use'}</button></td></tr>`,
+      )
+      .join('');
+    copyTable.dataset.copyText = [
+      'PSC\tARR\tFrequency (Hz)\tError (ppm)\tPWM bits',
+      ...sols.map((x) => `${x.psc}\t${x.arr}\t${x.freq}\t${formatNumber(x.error * 1e6, 5)}\t${formatNumber(x.bits, 4)}`),
+    ].join('\n');
+
+    let ccrLine = '';
+    let pulseLine = '';
+    if (duty !== null && duty >= 0 && duty <= 100) {
+      const p = pwmCompare(s.arr, duty);
+      setResult('ccr', String(p.ccr));
+      setResult('duty', formatNumber(p.duty * 100, 6));
+      setResult('step', formatNumber(p.step * 100, 4));
+      ccrLine = `\nTIMx->CCR1 = ${p.ccr};${' '.repeat(Math.max(1, 8 - String(p.ccr).length))}/* ${formatNumber(p.duty * 100, 6)} % duty (PWM mode 1) */`;
+      pulseLine = `\nsConfigOC.Pulse = ${p.ccr};`;
+    } else clearResults('ccr', 'duty', 'step');
+
+    const pad = (n: number) => ' '.repeat(Math.max(1, 8 - String(n).length));
+    setResult(
+      'code',
+      `/* ${formatSI(clk, 'Hz', 10)} timer clock -> ${formatSI(s.freq, 'Hz', 10)}${s.error === 0 ? ' (exact)' : `, error ${signed(s.error * 1e6, 4)} ppm`} */
+TIMx->PSC = ${s.psc};${pad(s.psc)}/* counter clock = f_clk / ${s.psc + 1} */
+TIMx->ARR = ${s.arr};${pad(s.arr)}/* period = ${s.arr + 1} counts */${ccrLine}
+TIMx->EGR = TIM_EGR_UG;  /* load the buffered PSC now */
+
+/* STM32 HAL / CubeMX */
+htim.Init.Prescaler = ${s.psc};
+htim.Init.Period = ${s.arr};${pulseLine}`,
+    );
+  });
+
+  // Row "Use" buttons write the hidden sel field and recompute.
+  rows.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-use]');
+    if (!btn) return;
+    (form.elements.namedItem('sel') as HTMLInputElement).value = btn.dataset.use!;
+    run();
+  });
+  // Changing any other input resets the selection to the best solution.
+  form.addEventListener(
+    'input',
+    (e) => {
+      if ((e.target as HTMLInputElement).name !== 'sel') (form.elements.namedItem('sel') as HTMLInputElement).value = '0';
+    },
+    { capture: true },
+  );
+  form.addEventListener(
+    'change',
+    () => {
+      (form.elements.namedItem('sel') as HTMLInputElement).value = '0';
+    },
+    { capture: true },
+  );
+</script>
+
+<style>
+  .sub {
+    font-size: var(--text-sm);
+    font-weight: 650;
+    color: var(--ink-muted);
+    margin: var(--s5) 0 var(--s2);
+  }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s3);
+  }
+  .panel-title .badge {
+    margin-left: var(--s2);
+    vertical-align: middle;
+  }
+</style>

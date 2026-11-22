@@ -1,0 +1,365 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import Toggle from '../../components/Toggle.astro';
+import { COMMANDS, EXAMPLE_LOG } from '../../lib/at-decoder';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: '3GPP TS 27.007 — AT command set for User Equipment (UE)',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1515',
+    note: 'all parameter values and the +CME ERROR tables (§9.2). Checked against V20.0.0.',
+  },
+  {
+    title: '3GPP TS 24.301 — Non-Access-Stratum (NAS) protocol for EPS; Stage 3',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1072',
+    note: 'Table 9.9.3.9.1, EMM cause values used by +CEREG <reject_cause>. Checked against V20.1.0.',
+  },
+  {
+    title: '3GPP TS 24.008 — Mobile radio interface Layer 3 specification; Core network protocols',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=1015',
+    note: 'GPRS Timer 2 / 3 (T3324, T3412) and Extended DRX parameters coding.',
+  },
+  {
+    title: '3GPP TS 23.003 — Numbering, addressing and identification',
+    href: 'https://portal.3gpp.org/desktopmodules/Specifications/SpecificationDetails.aspx?specificationId=729',
+    note: 'IMSI and IMEI structure, IMEI check digit (Annex B).',
+  },
+  { title: 'ITU-T V.250 — Serial asynchronous automatic dialling and control', note: 'OK, ERROR and other final result codes' },
+];
+
+const supported = Object.keys(COMMANDS)
+  .filter((c) => c !== 'CME')
+  .map((c) => `+${c}`);
+---
+
+<ToolLayout slug="at-decoder" references={references}>
+  <form id="at-form" novalidate>
+    <div class="tool-grid">
+      <div class="panel">
+        <h2 class="panel-title">Modem log</h2>
+        <div class="field">
+          <label for="f-log">Paste AT commands, responses and URCs</label>
+          <textarea id="f-log" name="log" rows="16" spellcheck="false" autocomplete="off" class="mono" data-no-url aria-describedby="f-log-help">{EXAMPLE_LOG}</textarea>
+          <p class="help" id="f-log-help">
+            Timestamps and <code>&lt;&lt;</code> / <code>&gt;&gt;</code> markers are ignored. Your log stays in your browser
+            and is never put in the page URL, since it may contain your IMEI and IMSI.
+          </p>
+        </div>
+        <div class="btn-row" style="margin-top: var(--s3)">
+          <button type="button" class="btn" id="load-example">Load example</button>
+          <button type="button" class="btn" id="clear-log">Clear</button>
+        </div>
+        <div class="fields fields--wide" style="margin-top: var(--s4)">
+          <Toggle name="quiet" label="Hide OK and plain text lines" />
+        </div>
+      </div>
+
+      <section class="panel" aria-labelledby="at-sum">
+        <h2 class="panel-title" id="at-sum">Modem state at the end of the log</h2>
+        <dl class="results" id="summary"></dl>
+        <p class="help" id="summary-empty" hidden>Nothing decoded yet. Paste lines such as <code>+CEREG: 1,"1A2D","01A2D101",7</code>.</p>
+        <p class="help" id="counts" style="margin-top: var(--s3)"></p>
+      </section>
+    </div>
+  </form>
+
+  <section class="section" aria-labelledby="at-lines">
+    <h2 id="at-lines">Line by line</h2>
+    <div id="lines" class="lines" aria-live="polite"></div>
+  </section>
+
+  <Fragment slot="formula">
+    <p>
+      Every line is classified first. Lines starting with <code>AT</code> are commands sent by the host. <code>OK</code>,
+      <code>ERROR</code> and <code>+CME ERROR</code> end a command. A <code>+XXX:</code> line is a response when it
+      follows <code>AT+XXX?</code> or an execute command of the same name before the final result code. Otherwise it is an
+      unsolicited result code (URC).
+    </p>
+    <p>
+      Without the command line, the form is guessed from the parameters. <code>+CEREG: 2,1</code> is a read response
+      (<code>&lt;n&gt;,&lt;stat&gt;</code>) because a URC's second field would be a quoted tracking area code.
+      <code>+CSCON: 0,1</code> stays ambiguous and is flagged. Paste the command lines too for an exact decode.
+    </p>
+    <p>
+      Measurement indices map to ranges, not single values: <code>&lt;rsrp&gt;</code> = n means −141 + n ≤ RSRP &lt; −140 + n
+      dBm, and <code>&lt;rsrq&gt;</code> = n means −20 + n/2 ≤ RSRQ &lt; −19.5 + n/2 dB. The E-UTRAN cell ID is 28 bits, and its
+      upper 20 bits are the eNB ID for a macro eNB. The IMEI check digit uses the Luhn algorithm.
+    </p>
+    <p>Decoded commands: {supported.join(', ')}, plus <code>+CME ERROR</code> and the V.250 final result codes.</p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Reading a cellular modem log</h2>
+    <p>
+      LTE-M and NB-IoT modules from every vendor share the AT commands of 3GPP TS 27.007. The answers are dense:
+      <code>+CEREG: 1,"1A2D","01A2D101",7,,,"00000110","00101000"</code> says the module is registered on its home
+      network, gives the tracking area and cell, and reports the PSM timers the network granted. Decoding that by hand
+      means juggling four specifications. This page does it line by line and keeps a running summary of the modem state.
+    </p>
+    <h3>Registration first</h3>
+    <p>
+      <code>&lt;stat&gt;</code> in <code>+CEREG</code> is the first thing to check. 2 means still searching, 3 means
+      the network rejected the module, and 1 or 5 means registered. Use <code>AT+CEREG=5</code> during bring-up: the
+      URCs then also carry the EMM reject cause and the PSM timers. Cause #15, "no suitable cells in tracking area", is
+      common when the SIM is not provisioned for LTE-M or NB-IoT on that network. Cause #11 and #14 point to the
+      subscription or roaming agreement.
+    </p>
+    <h3>Signal: use +CESQ, not +CSQ</h3>
+    <p>
+      <code>+CSQ</code> dates from GSM and modules derive it from LTE measurements in their own way. <code>+CESQ</code>
+      reports RSRP and RSRQ, the values the network uses. The fields for other RATs read 99 or 255 ("not known or not
+      detectable"). Signal alone does not tell you the coverage level: LTE-M and NB-IoT work far below normal LTE
+      levels by repeating transmissions, at the cost of power. The <a href={toolUrl('lte-power')}>LTE-M power budget</a>
+      shows what repetitions do to battery life.
+    </p>
+    <h3>What the network granted</h3>
+    <p>
+      <code>AT+CPSMS</code> and <code>AT+CEDRXS</code> only request power-saving timers. The network decides, and the
+      granted values arrive in <code>+CEREG</code> (n=4 or 5), <code>+CEDRXP</code> and <code>+CEDRXRDP</code>. They
+      often differ from the request, sometimes a lot. Use the <a href={toolUrl('psm-edrx')}>PSM &amp; eDRX calculator</a> to
+      encode new requests.
+    </p>
+    <h3>Errors</h3>
+    <p>
+      Turn on <code>AT+CMEE=1</code> (numeric) or <code>AT+CMEE=2</code> (text) early in your init sequence: a bare
+      <code>ERROR</code> tells you nothing. Codes 0–100 are general errors. Codes above 100 map to network causes, with the
+      TS 24.301 cause number shown as <code>(#n)</code>. Codes from 256 up are manufacturer-specific.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, esc } from '../../scripts/tool-client';
+  import { decodeLog, EXAMPLE_LOG, summarize, type Decoded, type LineKind } from '../../lib/at-decoder';
+  import type { Values } from '../../lib/url-state';
+
+  const KIND: Record<LineKind, string> = {
+    command: 'Sent',
+    response: 'Response',
+    urc: 'URC',
+    final: 'Result',
+    error: 'Error',
+    info: 'Text',
+    unknown: 'Not decoded',
+  };
+
+  const form = document.getElementById('at-form') as HTMLFormElement;
+  const log = form.elements.namedItem('log') as HTMLTextAreaElement;
+  const linesEl = document.getElementById('lines')!;
+  const summaryEl = document.getElementById('summary')!;
+  const countsEl = document.getElementById('counts')!;
+
+  const toneClass = (t?: string) => (t === 'bad' ? 'error' : t ?? '');
+
+  function card(d: Decoded): string {
+    const fields = d.fields.length
+      ? `<table class="atl-fields"><tbody>${d.fields
+          .map(
+            (f) =>
+              `<tr class="${f.tone ? `t-${toneClass(f.tone)}` : ''}"><th scope="row" class="mono">${esc(f.name)}</th><td class="mono">${esc(f.value)}</td><td>${esc(f.meaning)}</td></tr>`,
+          )
+          .join('')}</tbody></table>`
+      : '';
+    const notes = d.notes.length ? `<ul class="atl-notes">${d.notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
+    const compact = !d.fields.length && (d.kind === 'final' || d.kind === 'info');
+    return `<article class="atl atl--${d.kind}${d.tone ? ` atl--${toneClass(d.tone)}` : ''}${compact ? ' atl--compact' : ''}">
+      <div class="atl-head"><code class="atl-raw">${esc(d.raw.trim())}</code><span class="atl-kind">${KIND[d.kind]}</span></div>
+      ${compact ? (d.notes[0] ? `<p class="atl-title">${esc(d.notes[0])}</p>` : '') : `<p class="atl-title">${esc(d.title)}${d.ref ? ` <span class="atl-ref">${esc(d.ref)}</span>` : ''}</p>${fields}${notes}`}
+    </article>`;
+  }
+
+  function update(v: Values) {
+    const decoded = decodeLog(v.log ?? '');
+    const quiet = v.quiet === '1';
+    const shown = quiet ? decoded.filter((d) => !(d.kind === 'info' || (d.kind === 'final' && d.tone === 'ok'))) : decoded;
+    linesEl.innerHTML = shown.length ? shown.map(card).join('') : '<p class="help">No lines to show.</p>';
+
+    const sum = summarize(decoded);
+    summaryEl.innerHTML = sum
+      .map(
+        (s) =>
+          `<div class="result"><dt>${esc(s.label)}</dt><dd><span class="sum-val${s.tone ? ` t-${toneClass(s.tone)}` : ''}">${esc(s.value)}</span></dd></div>`,
+      )
+      .join('');
+    document.getElementById('summary-empty')!.hidden = sum.length > 0;
+
+    const n = (k: LineKind) => decoded.filter((d) => d.kind === k).length;
+    const parts = [
+      `${decoded.length} line${decoded.length === 1 ? '' : 's'}`,
+      `${n('command')} command${n('command') === 1 ? '' : 's'}`,
+      `${n('response')} response${n('response') === 1 ? '' : 's'}`,
+      `${n('urc')} URC${n('urc') === 1 ? '' : 's'}`,
+      `${n('error') + decoded.filter((d) => d.kind === 'final' && d.tone === 'bad').length} error(s)`,
+    ];
+    if (n('unknown')) parts.push(`${n('unknown')} not decoded`);
+    countsEl.textContent = decoded.length ? parts.join(' · ') : '';
+  }
+
+  const rerun = bindForm(form, update);
+  document.getElementById('load-example')!.addEventListener('click', () => {
+    log.value = EXAMPLE_LOG;
+    rerun();
+  });
+  document.getElementById('clear-log')!.addEventListener('click', () => {
+    log.value = '';
+    rerun();
+    log.focus();
+  });
+</script>
+
+<style>
+  p code {
+    overflow-wrap: anywhere;
+  }
+  textarea.mono {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .lines {
+    display: grid;
+    gap: var(--s2);
+  }
+  :global(.atl) {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--rule-strong);
+    border-radius: var(--radius);
+    padding: var(--s2) var(--s3);
+    min-width: 0;
+  }
+  :global(.atl--command) {
+    background: var(--surface-2);
+  }
+  :global(.atl--ok) {
+    border-left-color: var(--ok);
+  }
+  :global(.atl--warn) {
+    border-left-color: var(--warn);
+  }
+  :global(.atl--error) {
+    border-left-color: var(--error);
+  }
+  :global(.atl--compact) {
+    display: flex;
+    align-items: baseline;
+    gap: var(--s3);
+    flex-wrap: wrap;
+    padding-block: var(--s1);
+  }
+  :global(.atl--compact .atl-head) {
+    flex: 0 1 auto;
+  }
+  :global(.atl--compact .atl-title) {
+    margin: 0;
+    font-weight: 400;
+    color: var(--ink-muted);
+  }
+  :global(.atl-head) {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s3);
+    min-width: 0;
+  }
+  :global(.atl-raw) {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+    background: none;
+    padding: 0;
+  }
+  :global(.atl-kind) {
+    flex: none;
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  :global(.atl-title) {
+    margin: var(--s1) 0 0;
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+  :global(.atl-ref) {
+    font-weight: 400;
+    color: var(--ink-muted);
+    margin-left: var(--s1);
+  }
+  :global(.atl-fields) {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: var(--s2);
+    font-size: var(--text-sm);
+  }
+  :global(.atl-fields th),
+  :global(.atl-fields td) {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.2rem var(--s3) 0.2rem 0;
+    border-top: 1px solid var(--rule);
+    font-weight: 400;
+  }
+  :global(.atl-fields th) {
+    color: var(--ink-muted);
+    white-space: nowrap;
+    width: 1%;
+  }
+  :global(.atl-fields td.mono) {
+    width: 1%;
+    white-space: nowrap;
+  }
+  :global(.atl-fields tr.t-ok td:last-child) {
+    color: var(--ok);
+  }
+  :global(.atl-fields tr.t-warn td:last-child) {
+    color: var(--warn);
+  }
+  :global(.atl-fields tr.t-error td:last-child) {
+    color: var(--error);
+  }
+  :global(.atl-notes) {
+    margin: var(--s2) 0 0;
+    padding-left: 1.1rem;
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+  }
+  :global(.sum-val) {
+    font-size: var(--text-sm);
+    text-align: right;
+  }
+  :global(.sum-val.t-ok) {
+    color: var(--ok);
+  }
+  :global(.sum-val.t-warn) {
+    color: var(--warn);
+  }
+  :global(.sum-val.t-error) {
+    color: var(--error);
+  }
+  @media (max-width: 34rem) {
+    :global(.sum-val) {
+      text-align: left;
+    }
+    :global(.atl-fields tr) {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      column-gap: var(--s3);
+      border-top: 1px solid var(--rule);
+      padding: 0.2rem 0;
+    }
+    :global(.atl-fields th),
+    :global(.atl-fields td) {
+      border: 0;
+      padding: 0;
+      width: auto;
+    }
+    :global(.atl-fields td:last-child) {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

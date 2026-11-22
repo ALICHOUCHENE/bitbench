@@ -1,0 +1,602 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import Toggle from '../../components/Toggle.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'ST RM0090 — STM32F405/407/427/429 reference manual',
+    note: 'bxCAN "Bit timing" and CAN_BTR register',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0090-stm32f405415-stm32f407417-stm32f427437-and-stm32f429439-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  {
+    title: 'ST RM0440 — STM32G4 reference manual',
+    note: 'FDCAN bit timing, FDCAN_NBTP, FDCAN_DBTP and FDCAN_TDCR registers',
+  },
+  {
+    title: 'Bosch M_CAN User’s Manual, Rev. 3.3.1',
+    note: 'the IP inside STM32 FDCAN: field ranges (Tables 5 and 9), transmitter delay compensation (§3.1.4)',
+    href: 'https://www.bosch-semiconductors.com/media/ip_modules/pdf_2/m_can/mcan_users_manual_v331.pdf',
+  },
+  {
+    title: 'F. Hartwich, A. Bassemir — "The Configuration of the CAN Bit Timing", 6th iCC 1999',
+    note: 'propagation segment and oscillator tolerance conditions 1 and 2',
+    href: 'http://www.oertel-halle.de/files/cia99paper.pdf',
+  },
+  {
+    title: 'A. Mutter — "Robustness of a CAN FD Bus System", 14th iCC 2013',
+    note: 'CAN FD oscillator tolerance conditions 3 to 5',
+    href: 'https://web.archive.org/web/2020id_/https://www.can-cia.org/fileadmin/resources/documents/proceedings/2013_mutter.pdf',
+  },
+  {
+    title: 'H. Zeltwanger — "Recommendation for the CAN FD bit-timing", CAN Newsletter 1/2018',
+    note: 'summary of CiA 601-3: same prescaler in both phases, SJW, TDC above 1 Mbit/s',
+  },
+  {
+    title: 'STM32CubeG4 — FDCAN_Com_IT example and stm32g4xx_hal_fdcan',
+    note: 'TdcOffset default recommended value DataTimeSeg1 × DataPrescaler',
+    href: 'https://github.com/STMicroelectronics/STM32CubeG4',
+  },
+];
+
+const rateUnits = [
+  { value: 'k', label: 'kbit/s' },
+  { value: 'M', label: 'Mbit/s' },
+];
+---
+
+<ToolLayout slug="can-timing" references={references}>
+  <form id="can-form" novalidate>
+    <div class="tool-grid">
+      <div class="panel">
+        <h2 class="panel-title">Inputs</h2>
+        <div class="fields fields--wide">
+          <Segmented
+            name="ctrl"
+            label="Controller"
+            options={[
+              { value: 'bxcan', label: 'bxCAN (CAN_BTR)' },
+              { value: 'fdcan', label: 'FDCAN (NBTP / DBTP)' },
+            ]}
+          />
+        </div>
+        <p class="help" id="ctrl-help">bxCAN: STM32F0, F1, F2, F3, F4, F7, L4. Clocked by PCLK1 (APB1).</p>
+        <div class="fields" style="margin-top: var(--s4)">
+          <NumberInput name="clk" label="CAN clock" value="42" unit="MHz" help="APB1 for bxCAN; FDCAN kernel clock after CKDIV" />
+          <NumberInput name="br" label="Bit rate" value="500" units={rateUnits} unitValue="k" />
+          <NumberInput name="sp" label="Sample point" value="87.5" unit="%" help="87.5 % is the usual choice up to 500 kbit/s" />
+          <NumberInput name="sjw" label="SJW" value="" placeholder="max" inputmode="numeric" help="tq; empty uses the largest allowed" />
+        </div>
+        <div data-ctrl="fdcan" hidden>
+          <div class="fields" style="margin-top: var(--s4)">
+            <Toggle name="fd" label="CAN FD data phase (bit-rate switch)" checked />
+          </div>
+          <div class="fields" style="margin-top: var(--s4)" data-fd>
+            <NumberInput name="dbr" label="Data bit rate" value="2" units={rateUnits} unitValue="M" />
+            <NumberInput name="dsp" label="Data sample point" value="75" unit="%" />
+            <NumberInput name="dsjw" label="Data SJW" value="" placeholder="max" inputmode="numeric" />
+          </div>
+        </div>
+        <h3 class="sub">Bus</h3>
+        <div class="fields">
+          <NumberInput name="len" label="Bus length" value="40" unit="m" help="Farthest node to farthest node" />
+          <NumberInput name="loop" label="Transceiver loop delay" value="250" unit="ns" help="TXD → RXD maximum, e.g. 250 ns TJA1051T/3" />
+        </div>
+        <input type="hidden" name="selN" value="0" />
+        <input type="hidden" name="selD" value="0" />
+      </div>
+
+      <section class="panel" aria-labelledby="can-results">
+        <h2 class="panel-title" id="can-results">Result <span id="exact-badge" class="badge badge--ok" hidden>exact</span></h2>
+        <dl class="results">
+          <ResultRow label="CAN_BTR" name="btr" primary data-ctrl="bxcan" />
+          <ResultRow label="FDCAN_NBTP" name="nbtp" primary data-ctrl="fdcan" />
+          <ResultRow label="FDCAN_DBTP" name="dbtp" data-ctrl="fdcan" data-fd="" />
+          <ResultRow label="Bit rate" name="rate" />
+          <ResultRow label="Time quantum × tq per bit" name="tq" />
+          <ResultRow label="Segments" name="segs" help="SYNC + TSEG1 + TSEG2" />
+          <ResultRow label="Sample point" name="spOut" />
+          <ResultRow label="Propagation: PROP_SEG / PHASE_SEG1" name="prop" help="Round trip 2 · (bus + loop delay)" />
+          <ResultRow label="Oscillator tolerance" name="tol" help="Per node: conditions 1–2, plus 3–5 for CAN FD" />
+          <ResultRow label="Longest bus at this setting" name="maxLen" />
+        </dl>
+        <div data-ctrl="fdcan" data-fd>
+          <h3 class="sub">Data phase</h3>
+          <dl class="results">
+            <ResultRow label="Data bit rate" name="dRate" />
+            <ResultRow label="Time quantum × tq per bit" name="dTq" />
+            <ResultRow label="Segments" name="dSegs" />
+            <ResultRow label="Data sample point" name="dSpOut" />
+            <ResultRow label="FD conditions 3 / 4 / 5" name="dTol" />
+            <ResultRow label="Transmitter delay compensation" name="tdc" />
+          </dl>
+        </div>
+        <div class="bits" id="bits-n" aria-label="Nominal bit segments"></div>
+        <div class="bits" id="bits-d" aria-label="Data bit segments"></div>
+        <p class="note note--warn" id="warn-note" hidden></p>
+      </section>
+    </div>
+
+    <section class="section" aria-labelledby="tbl-n-title">
+      <h2 id="tbl-n-title">Candidates <span id="tbl-n-phase">for the bit rate</span></h2>
+      <p class="help">Ranked by bit-rate error, then sample-point error, then the smallest prescaler (most quanta per bit). Pick a row to use it.</p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>#</th><th class="num">Prescaler</th><th class="num">tq/bit</th><th class="num">TSEG1</th><th class="num">TSEG2</th><th class="num">SJW</th><th class="num">Sample point</th><th class="num">Bit rate error</th><th><span class="visually-hidden">Select</span></th></tr>
+          </thead>
+          <tbody id="rows-n"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="tbl-d-title" data-ctrl="fdcan" data-fd>
+      <h2 id="tbl-d-title">Data-phase candidates</h2>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>#</th><th class="num">Prescaler</th><th class="num">tq/bit</th><th class="num">DTSEG1</th><th class="num">DTSEG2</th><th class="num">DSJW</th><th class="num">Sample point</th><th class="num">Bit rate error</th><th><span class="visually-hidden">Select</span></th></tr>
+          </thead>
+          <tbody id="rows-d"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <CodeOutput name="code" label="C initialisation" />
+    </section>
+
+    <section class="section" aria-labelledby="dec-title">
+      <h2 id="dec-title">Decode an existing register</h2>
+      <p class="help">Uses the controller and CAN clock set above. Values are read as hex.</p>
+      <div class="fields">
+        <div data-ctrl="bxcan"><NumberInput name="decBtr" label="CAN_BTR" value="" inputmode="text" placeholder="0x001A0005" /></div>
+        <div data-ctrl="fdcan" hidden><NumberInput name="decNbtp" label="FDCAN_NBTP" value="" inputmode="text" placeholder="0x06000A03" /></div>
+        <div data-ctrl="fdcan" hidden><NumberInput name="decDbtp" label="FDCAN_DBTP" value="" inputmode="text" placeholder="0x00000A33" /></div>
+      </div>
+      <dl class="results" id="dec-out" hidden>
+        <ResultRow label="Decoded" name="decN" />
+        <ResultRow label="Decoded data phase" name="decD" data-ctrl="fdcan" />
+      </dl>
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>tq        = prescaler / f_CAN
+N         = 1 (SYNC_SEG) + TSEG1 + TSEG2          time quanta per bit
+bit rate  = f_CAN / (prescaler · N)
+SP        = (1 + TSEG1) / N                       sampled at the end of TSEG1
+
+TSEG1     = PROP_SEG + PHASE_SEG1                 (merged in one field on STM32)
+PROP_SEG  ≥ 2 · (L · 5 ns/m + t_loop) / tq        round trip to the farthest node
+PHASE_SEG2 ≥ 2 tq                                 covers the information processing time on any controller
+SJW       ≤ min(PHASE_SEG1, PHASE_SEG2)
+
+Oscillator tolerance of each node (Hartwich &amp; Bassemir):
+  df ≤ min(PS1, PS2) / (2 · (13 · N − PS2))
+  df ≤ SJW / (20 · N)
+CAN FD (Mutter), D = data phase:
+  df ≤ DSJW / (20 · DN)
+  df ≤ min(PS1, PS2) / (2 · ((6 · DN − DPS2) · DBRP / BRP + 7 · N))
+  df ≤ (DSJW − max(0, BRP / DBRP − 1)) / (2 · ((2 · N − PS2) · BRP / DBRP + DPS2 + 4 · DN))
+
+TDC (data rate &gt; 1 Mbit/s): DBRP must be 1 or 2
+  TDCO = DBRP · DTSEG1  clock periods (ST default), ≤ 127
+  loop delay + TDCO &lt; 6 data bits
+
+Registers hold count − 1:
+  CAN_BTR     = (SJW−1)&lt;&lt;24 | (TSEG2−1)&lt;&lt;20 | (TSEG1−1)&lt;&lt;16 | (BRP−1)
+  FDCAN_NBTP  = (SJW−1)&lt;&lt;25 | (BRP−1)&lt;&lt;16 | (TSEG1−1)&lt;&lt;8 | (TSEG2−1)
+  FDCAN_DBTP  = TDC&lt;&lt;23 | (BRP−1)&lt;&lt;16 | (TSEG1−1)&lt;&lt;8 | (TSEG2−1)&lt;&lt;4 | (SJW−1)</pre>
+    <p>
+      For every prescaler the tool takes the whole number of quanta per bit nearest the target, then splits it so the
+      sample point is as close as possible to the one you asked for, keeping TSEG2 at 2 tq or more. When TDC is needed,
+      the data phase is limited to prescaler 1 or 2. The bus length only
+      enters the checks: it decides how much of TSEG1 is propagation and how much is left as PHASE_SEG1.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Choosing CAN bit timing on STM32</h2>
+    <h3>Every node must agree on the sample point, not just the bit rate</h3>
+    <p>
+      Two nodes with the same bit rate but very different sample points can work on the bench and fail on a long bus or
+      at temperature. Pick one sample point for the whole network and use it everywhere. 87.5 % is the usual value up
+      to 500 kbit/s and the nominal value in CANopen. For the arbitration phase of CAN FD, CiA 601-3 advises against
+      going above 80 % in automotive networks. A late sample point leaves room for propagation delay; an early one leaves
+      room for resynchronisation.
+    </p>
+    <h3>Use the right clock</h3>
+    <p>
+      bxCAN is clocked by APB1: on an STM32F407 at 168 MHz that is usually 42 MHz, on an STM32F103 at 72 MHz it is 36 MHz.
+      FDCAN has its own kernel clock, selected in RCC (PCLK, PLL Q output or HSE) and divided by FDCAN_CKDIV. Use the
+      clock after that divider. An HSE-derived clock is the safe choice: the HSI is often too inaccurate for CAN, see the
+      tolerance row.
+    </p>
+    <h3>More quanta, a small prescaler</h3>
+    <p>
+      With more time quanta per bit, the sample point can be placed more precisely and SJW can be larger, which raises the
+      oscillator tolerance. For CAN FD, CiA 601-3 recommends the same prescaler in both phases, as small as possible, SJW
+      as large as possible, and a CAN clock of 20, 40 or 80 MHz, which divides evenly into the usual bit rates. Above
+      1 Mbit/s in the data phase, switch on transmitter delay compensation (TDC); without it, the transceiver loop delay
+      alone can push the sample point of the transmitter's own bits past the end of the bit. TDC only works with a data
+      prescaler of 1 or 2, and its offset TDCO is counted in CAN clock periods, not time quanta.
+    </p>
+    <h3>Bus length and the propagation segment</h3>
+    <p>
+      During arbitration a node must see the bits of the farthest node before it samples, so TSEG1 has to cover the round
+      trip: twice the cable delay (about 5 ns/m, signals travel at roughly two-thirds of the speed of light) plus twice
+      the transceiver loop delay. What remains is PHASE_SEG1, and
+      the tolerance conditions use the smaller of PHASE_SEG1 and PHASE_SEG2. The "Longest bus" row shows how far a
+      setting can stretch. At 1 Mbit/s, a 250 ns transceiver loop delay already uses half a microsecond of a one
+      microsecond bit, which is why 1 Mbit/s classic CAN is limited to a few tens of metres.
+    </p>
+    <p>
+      For the other buses on the same microcontroller, see the <a href={toolUrl('spi-timing')}>SPI</a>,
+      <a href={toolUrl('i2c-timing')}>I²C</a> and <a href={toolUrl('uart-baud')}>UART</a> calculators.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, setError, setResult, show } from '../../scripts/tool-client';
+  import { applyUnit, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import {
+    BXCAN,
+    FDCAN_DATA,
+    FDCAN_NOMINAL,
+    checkFields,
+    TDC_MAX_DBRP,
+    decodeBtr,
+    decodeDbtp,
+    decodeNbtp,
+    encodeBtr,
+    encodeDbtp,
+    encodeNbtp,
+    fdTolerance,
+    maxBusLength,
+    oscillatorTolerance,
+    parseHexRegister,
+    propagation,
+    searchBitTiming,
+    tdcSettings,
+    timingFromFields,
+    type BitTiming,
+    type CanFields,
+    type CanLimits,
+  } from '../../lib/can-timing';
+
+  const RATE: Record<string, number> = { k: 1e3, M: 1e6 };
+  const RESULTS = ['btr', 'nbtp', 'dbtp', 'rate', 'tq', 'segs', 'spOut', 'prop', 'tol', 'maxLen', 'dRate', 'dTq', 'dSegs', 'dSpOut', 'dTol', 'tdc', 'code'];
+  const form = document.getElementById('can-form') as HTMLFormElement;
+  const rowsN = document.getElementById('rows-n')!;
+  const rowsD = document.getElementById('rows-d')!;
+  const bitsN = document.getElementById('bits-n')!;
+  const bitsD = document.getElementById('bits-d')!;
+  const warn = document.getElementById('warn-note')!;
+  const field = (n: string) => form.elements.namedItem(n) as HTMLInputElement;
+
+  const hex8 = (v: number) => `0x${v.toString(16).toUpperCase().padStart(8, '0')}`;
+  const pct = (x: number, sig = 4) => `${formatNumber(x * 100, sig)} %`;
+  const signedPct = (x: number) => (x === 0 ? '0 %' : `${x > 0 ? '+' : ''}${formatNumber(x * 100, 3)} %`);
+  const rate = (x: number) => formatSI(x, 'bit/s', 6);
+
+  function positive(name: string, raw: string, label: string, mult = 1): number | null {
+    const v = parseNumber(raw);
+    if (v === null) return setError(name, `${label} must be a number.`), null;
+    if (v <= 0) return setError(name, `${label} must be greater than zero.`), null;
+    setError(name, null);
+    return applyUnit(raw, v, mult);
+  }
+
+  function percent(name: string, raw: string, label: string): number | null {
+    const v = parseNumber(raw);
+    if (v === null || v < 50 || v > 95) return setError(name, `${label} must be between 50 and 95 %.`), null;
+    setError(name, null);
+    return v / 100;
+  }
+
+  function optionalCount(name: string, raw: string, max: number): number | null | undefined {
+    if (raw.trim() === '') return setError(name, null), null;
+    const v = Number(raw.trim());
+    if (!Number.isInteger(v) || v < 1 || v > max) return setError(name, `Whole number from 1 to ${max}.`), undefined;
+    setError(name, null);
+    return v;
+  }
+
+  function nonNegative(name: string, raw: string, label: string): number | null {
+    const v = parseNumber(raw);
+    if (v === null || v < 0) return setError(name, `${label} must be zero or more.`), null;
+    setError(name, null);
+    return v;
+  }
+
+  function segBar(t: BitTiming, propSeg: number | null, label: string): string {
+    const n = t.n;
+    const cell = (cls: string, name: string, q: number) => (q > 0 ? `<div class="bit-seg ${cls}" style="flex-grow:${q}" title="${name}: ${q} tq"><b>${name}</b>${q}</div>` : '');
+    const prop = propSeg === null ? 0 : Math.min(propSeg, t.tseg1);
+    const segs =
+      cell('bit-sync', 'SYNC', 1) +
+      (propSeg === null ? cell('bit-ts1', 'TSEG1', t.tseg1) : cell('bit-prop', 'PROP', prop) + cell('bit-ts1', 'PS1', t.tseg1 - prop)) +
+      cell('bit-ts2', propSeg === null ? 'TSEG2' : 'PS2', t.tseg2);
+    return `<p class="bits-label">${label} · ${n} tq · sample point ${pct(t.samplePoint, 3)} (blue line)</p><div class="bits-row">${segs}</div>`;
+  }
+
+  function rowsMarkup(list: BitTiming[], sel: number, kind: 'n' | 'd'): string {
+    return list
+      .map(
+        (t, i) => `<tr${i === sel ? ' class="is-current"' : ''}>
+          <td>${i + 1}</td><td class="num">${t.brp}</td><td class="num">${t.n}</td><td class="num">${t.tseg1}</td><td class="num">${t.tseg2}</td>
+          <td class="num">${t.sjw}</td><td class="num">${pct(t.samplePoint, 3)}</td><td class="num">${signedPct(t.bitrateError)}</td>
+          <td><button type="button" class="copy-btn" data-use-${kind}="${i}" aria-pressed="${i === sel}">${i === sel ? 'In use' : 'Use'}</button></td></tr>`,
+      )
+      .join('');
+  }
+
+  function empty() {
+    clearResults(...RESULTS);
+    rowsN.innerHTML = rowsD.innerHTML = bitsN.innerHTML = bitsD.innerHTML = '';
+    show('exact-badge', false);
+    show('warn-note', false);
+  }
+
+  const describe = (f: CanFields, clock: number, limits: CanLimits) => {
+    const t = timingFromFields(clock, f.brp, f.tseg1, f.tseg2, f.sjw);
+    const bad = checkFields(f, limits);
+    return `prescaler ${f.brp}, TSEG1 ${f.tseg1}, TSEG2 ${f.tseg2}, SJW ${f.sjw} → ${rate(t.bitrate)}, SP ${pct(t.samplePoint, 3)}${bad.length ? ` (${bad.join('; ')})` : ''}`;
+  };
+
+  function decode(v: Record<string, string>, fd: boolean, clock: number | null) {
+    let any = false;
+    const one = (name: string, raw: string, fn: (x: number) => string) => {
+      if (raw.trim() === '') return setError(name, null), null;
+      const x = parseHexRegister(raw);
+      if (x === null) return setError(name, 'Enter a 32-bit hex value.'), null;
+      setError(name, null);
+      any = true;
+      return clock === null ? 'set a valid CAN clock' : fn(x);
+    };
+    if (!fd) {
+      const r = one('decBtr', v.decBtr, (x) => {
+        const f = decodeBtr(x);
+        return describe(f, clock!, BXCAN) + (f.lbkm || f.silm ? ` · ${[f.lbkm && 'loop back', f.silm && 'silent'].filter(Boolean).join(' + ')} mode` : '');
+      });
+      setResult('decN', r ?? '—');
+    } else {
+      const n = one('decNbtp', v.decNbtp, (x) => describe(decodeNbtp(x), clock!, FDCAN_NOMINAL));
+      const d = one('decDbtp', v.decDbtp, (x) => {
+        const f = decodeDbtp(x);
+        return describe(f, clock!, FDCAN_DATA) + (f.tdc ? ' · TDC on' : '');
+      });
+      setResult('decN', n ?? '—');
+      setResult('decD', d ?? '—');
+    }
+    show('dec-out', any);
+  }
+
+  const run = bindForm(form, (v) => {
+    const ctrl = v.ctrl === 'fdcan' ? 'fdcan' : 'bxcan';
+    const fd = ctrl === 'fdcan' && v.fd === '1';
+    form.querySelectorAll<HTMLElement>('[data-ctrl]').forEach((el) => {
+      el.hidden = el.dataset.ctrl !== ctrl || (el.hasAttribute('data-fd') && !fd);
+    });
+    form.querySelectorAll<HTMLElement>('[data-fd]:not([data-ctrl])').forEach((el) => (el.hidden = !fd));
+    document.getElementById('ctrl-help')!.textContent =
+      ctrl === 'bxcan' ? 'bxCAN: STM32F0, F1, F2, F3, F4, F7, L4. Clocked by PCLK1 (APB1).' : 'FDCAN: STM32G0, G4, H5, H7, L5, U5. Kernel clock from RCC, divided by FDCAN_CKDIV.';
+    document.getElementById('tbl-n-phase')!.textContent = fd ? 'for the nominal (arbitration) phase' : 'for the bit rate';
+
+    const limits = ctrl === 'bxcan' ? BXCAN : FDCAN_NOMINAL;
+    const clock = positive('clk', v.clk, 'CAN clock', 1e6);
+    decode(v, ctrl === 'fdcan', clock);
+    const br = positive('br', v.br, 'Bit rate', RATE[v.brUnit] ?? 1e3);
+    const sp = percent('sp', v.sp, 'Sample point');
+    const sjw = optionalCount('sjw', v.sjw, limits.sjw[1]);
+    const len = nonNegative('len', v.len, 'Bus length');
+    const loopNs = nonNegative('loop', v.loop, 'Loop delay');
+    let dbr: number | null = 0;
+    let dsp: number | null = 0;
+    let dsjw: number | null | undefined = null;
+    if (fd) {
+      dbr = positive('dbr', v.dbr, 'Data bit rate', RATE[v.dbrUnit] ?? 1e6);
+      dsp = percent('dsp', v.dsp, 'Data sample point');
+      dsjw = optionalCount('dsjw', v.dsjw, FDCAN_DATA.sjw[1]);
+    }
+    if (clock === null || br === null || sp === null || sjw === undefined || len === null || loopNs === null || dbr === null || dsp === null || dsjw === undefined) return empty();
+    const loop = loopNs * 1e-9;
+    const notes: string[] = [];
+
+    // Data phase first, so the nominal phase can prefer the same prescaler (CiA 601-3).
+    let data: BitTiming | null = null;
+    if (fd) {
+      if (dbr! <= br) setError('dbr', 'The data bit rate should be higher than the nominal one.');
+      // Above 1 Mbit/s TDC is needed, and TDC needs DBRP ≤ 2: search that range first.
+      const tdcLimits = { ...FDCAN_DATA, brp: [1, TDC_MAX_DBRP] as [number, number] };
+      let listD = dbr! > 1e6 ? searchBitTiming(clock, dbr!, dsp!, tdcLimits, { sjw: dsjw }) : [];
+      if (listD.length === 0) listD = searchBitTiming(clock, dbr!, dsp!, FDCAN_DATA, { sjw: dsjw });
+      if (listD.length === 0) {
+        setError('dbr', `No data-phase setting reaches ${rate(dbr!)} at this clock.`);
+        return empty();
+      }
+      const selD = Math.min(listD.length - 1, Math.max(0, Number.parseInt(v.selD, 10) || 0));
+      data = listD[selD];
+      rowsD.innerHTML = rowsMarkup(listD, selD, 'd');
+    } else rowsD.innerHTML = '';
+
+    const listN = searchBitTiming(clock, br, sp, limits, { sjw, preferBrp: data?.brp });
+    if (listN.length === 0) {
+      setError('br', `No setting reaches ${rate(br)} at this clock: the clock is too slow or the bit rate too low.`);
+      return empty();
+    }
+    const selN = Math.min(listN.length - 1, Math.max(0, Number.parseInt(v.selN, 10) || 0));
+    const nom = listN[selN];
+    rowsN.innerHTML = rowsMarkup(listN, selN, 'n');
+
+    // Registers
+    const btr = encodeBtr(nom);
+    const nbtp = encodeNbtp(nom);
+    const tdcOn = fd && dbr! > 1e6;
+    const tdc = data ? tdcSettings(clock, data, loop) : null;
+    const tdcUse = tdcOn && !!tdc?.ok;
+    const dbtp = data ? encodeDbtp(data, tdcUse) : 0;
+    setResult('btr', hex8(btr));
+    setResult('nbtp', hex8(nbtp));
+    setResult('dbtp', data ? hex8(dbtp) : '—');
+
+    const exact = nom.bitrateError === 0 && (!data || data.bitrateError === 0);
+    show('exact-badge', exact);
+    setResult('rate', `${rate(nom.bitrate)}${nom.bitrateError === 0 ? '' : ` (${signedPct(nom.bitrateError)})`}`);
+    setResult('tq', `${formatSI(nom.tq, 's', 5)} × ${nom.n}`);
+    setResult('segs', `1 + ${nom.tseg1} + ${nom.tseg2} tq, SJW ${nom.sjw}`);
+    setResult('spOut', `${pct(nom.samplePoint, 4)} (${signedPct(nom.spError).replace('%', 'points')})`);
+
+    const p = propagation(nom.tq, nom.tseg1, len, loop);
+    const tol = oscillatorTolerance(nom.n, p.ps1, nom.tseg2, nom.sjw);
+    const lmax = maxBusLength(nom.tq, nom.tseg1, loop);
+    setResult('prop', p.ps1 > 0 ? `${p.propSeg} / ${p.ps1} tq (${formatSI(p.tProp, 's', 4)})` : `${p.propSeg} tq needed, only ${nom.tseg1} in TSEG1`);
+    const fdTol = data ? fdTolerance(nom, data, p.ps1) : null;
+    const df = fdTol ? fdTol.df : tol.df;
+    setResult('tol', p.ps1 > 0 ? `± ${pct(df, 3)} (${formatNumber(df * 1e6, 4)} ppm)` : 'none: bus too long');
+    setResult('maxLen', lmax > 0 ? `${formatNumber(lmax, 4)} m` : 'none: the transceivers alone take too long');
+
+    if (p.ps1 <= 0) notes.push(`<strong>The bus is too long for this setting:</strong> the ${formatNumber(len, 4)} m round trip needs ${p.propSeg} tq but TSEG1 is only ${nom.tseg1} tq. Lower the bit rate, move the sample point later or shorten the bus.`);
+    else if (df < 0.0015) notes.push(`The oscillator tolerance is only ± ${pct(df, 2)}: use a crystal or HSE-derived clock on every node.`);
+    if (nom.sjw < Math.min(nom.tseg2, limits.sjw[1]) && p.ps1 > 0) notes.push(`A larger SJW (up to ${Math.min(nom.tseg2, Math.max(1, p.ps1), limits.sjw[1])}) would raise the oscillator tolerance.`);
+    if (nom.sjw > p.ps1 && p.ps1 > 0) notes.push(`SJW (${nom.sjw}) is larger than PHASE_SEG1 (${p.ps1} tq) on this bus.`);
+
+    // Data phase results
+    let tdcLine = '';
+    if (data) {
+      setResult('dRate', `${rate(data.bitrate)}${data.bitrateError === 0 ? '' : ` (${signedPct(data.bitrateError)})`}`);
+      setResult('dTq', `${formatSI(data.tq, 's', 5)} × ${data.n}`);
+      setResult('dSegs', `1 + ${data.tseg1} + ${data.tseg2} tq, DSJW ${data.sjw}`);
+      setResult('dSpOut', `${pct(data.samplePoint, 4)} (${signedPct(data.spError).replace('%', 'points')})`);
+      setResult('dTol', fdTol && p.ps1 > 0 ? `${pct(fdTol.c3, 3)} / ${pct(fdTol.c4, 3)} / ${pct(fdTol.c5, 3)}` : '—');
+      setResult('tdc', tdcOn && tdc ? (tdc.ok ? `on, TDCO = ${tdc.tdco} clock periods` : `needed but not possible`) : 'off (≤ 1 Mbit/s)');
+      if (tdcOn && tdc && !tdc.ok) notes.push(`<strong>Transmitter delay compensation does not work here:</strong> ${tdc.reason}. Raise or lower the CAN clock so the data phase fits prescaler 1 or 2.`);
+      if (tdcUse) tdcLine = `\nHAL_FDCAN_ConfigTxDelayCompensation(&hfdcan, ${tdc!.tdco}, 0);  /* offset in CAN clock periods */\nHAL_FDCAN_EnableTxDelayCompensation(&hfdcan);`;
+      if (data.brp !== nom.brp) notes.push(`The two phases use different prescalers (${nom.brp} and ${data.brp}). CiA 601-3 recommends the same one.`);
+      if (data.n < 8) notes.push(`Only ${data.n} tq per data bit: the sample point cannot be placed precisely. Raise the CAN clock.`);
+    } else clearResults('dRate', 'dTq', 'dSegs', 'dSpOut', 'dTol', 'tdc');
+
+    bitsN.innerHTML = segBar(nom, p.ps1 > 0 ? p.propSeg : null, fd ? 'Nominal bit' : 'Bit');
+    bitsD.innerHTML = data ? segBar(data, null, 'Data bit') : '';
+    warn.innerHTML = notes.join('<br />');
+    show('warn-note', notes.length > 0);
+
+    const head = `/* ${formatSI(clock, 'Hz', 6)} CAN clock: ${rate(nom.bitrate)}, SP ${pct(nom.samplePoint, 3)}${data ? `; data ${rate(data.bitrate)}, SP ${pct(data.samplePoint, 3)}` : ''} */`;
+    setResult(
+      'code',
+      ctrl === 'bxcan'
+        ? `${head}
+/* In initialisation mode (CAN_MCR.INRQ = 1, wait for CAN_MSR.INAK) */
+CAN1->BTR = ${hex8(btr)}U;  /* BRP ${nom.brp}, TS1 ${nom.tseg1} tq, TS2 ${nom.tseg2} tq, SJW ${nom.sjw} tq */
+
+/* STM32 HAL */
+hcan.Init.Prescaler = ${nom.brp};
+hcan.Init.SyncJumpWidth = CAN_SJW_${nom.sjw}TQ;
+hcan.Init.TimeSeg1 = CAN_BS1_${nom.tseg1}TQ;
+hcan.Init.TimeSeg2 = CAN_BS2_${nom.tseg2}TQ;`
+        : `${head}
+/* With FDCAN_CCCR.INIT = 1 and CCE = 1 */
+FDCAN1->NBTP = ${hex8(nbtp)}U;  /* NBRP ${nom.brp}, NTSEG1 ${nom.tseg1}, NTSEG2 ${nom.tseg2}, NSJW ${nom.sjw} (tq) */${
+            data ? `\nFDCAN1->DBTP = ${hex8(dbtp)}U;  /* DBRP ${data.brp}, DTSEG1 ${data.tseg1}, DTSEG2 ${data.tseg2}, DSJW ${data.sjw}${tdcUse ? ', TDC on' : ''} */${tdcUse ? `\nFDCAN1->TDCR = (${data.brp * data.tseg1}U << FDCAN_TDCR_TDCO_Pos);  /* TDCO in CAN clock periods */` : ''}` : ''
+          }
+
+/* STM32 HAL */
+hfdcan.Init.FrameFormat = ${data ? 'FDCAN_FRAME_FD_BRS' : 'FDCAN_FRAME_CLASSIC'};
+hfdcan.Init.NominalPrescaler = ${nom.brp};
+hfdcan.Init.NominalSyncJumpWidth = ${nom.sjw};
+hfdcan.Init.NominalTimeSeg1 = ${nom.tseg1};
+hfdcan.Init.NominalTimeSeg2 = ${nom.tseg2};${
+            data
+              ? `\nhfdcan.Init.DataPrescaler = ${data.brp};\nhfdcan.Init.DataSyncJumpWidth = ${data.sjw};\nhfdcan.Init.DataTimeSeg1 = ${data.tseg1};\nhfdcan.Init.DataTimeSeg2 = ${data.tseg2};`
+              : ''
+          }
+HAL_FDCAN_Init(&hfdcan);${tdcLine}`,
+    );
+  });
+
+  // "Use" buttons in the two tables.
+  form.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-use-n], [data-use-d]');
+    if (!btn) return;
+    if (btn.dataset.useN !== undefined) field('selN').value = btn.dataset.useN;
+    else field('selD').value = btn.dataset.useD!;
+    run();
+  });
+  // Any other change goes back to the best candidates.
+  const reset = (e: Event) => {
+    const name = (e.target as HTMLInputElement).name;
+    if (name !== 'selN' && name !== 'selD' && !name.startsWith('dec')) field('selN').value = field('selD').value = '0';
+  };
+  form.addEventListener('input', reset, { capture: true });
+  form.addEventListener('change', reset, { capture: true });
+</script>
+
+<style>
+  .sub {
+    font-size: var(--text-sm);
+    font-weight: 650;
+    color: var(--ink-muted);
+    margin: var(--s5) 0 var(--s2);
+  }
+  .panel-title .badge {
+    margin-left: var(--s2);
+    vertical-align: middle;
+  }
+  .bits:empty {
+    display: none;
+  }
+  .bits {
+    margin-top: var(--s4);
+  }
+  :global(.bits-label) {
+    margin: 0 0 var(--s1);
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+  }
+  :global(.bits-row) {
+    position: relative;
+    display: flex;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  :global(.bit-seg) {
+    flex-basis: 0;
+    min-width: 2.2rem;
+    padding: var(--s2) var(--s1);
+    text-align: center;
+    border-left: 1px solid var(--rule);
+  }
+  :global(.bit-seg:first-child) {
+    border-left: 0;
+  }
+  :global(.bit-seg b) {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+  }
+  :global(.bit-sync) {
+    flex-grow: 0 !important;
+    background: var(--surface-2, var(--bg));
+  }
+  :global(.bit-prop) {
+    background: var(--bg);
+  }
+  :global(.bit-ts1) {
+    background: var(--accent-soft);
+  }
+  /* The sample point is the boundary between TSEG1 and TSEG2. */
+  :global(.bit-ts2) {
+    background: var(--surface);
+    border-left: 3px solid var(--accent);
+  }
+</style>

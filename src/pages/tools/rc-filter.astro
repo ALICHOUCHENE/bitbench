@@ -1,0 +1,141 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+
+const references = [
+  { title: 'P. Horowitz & W. Hill, The Art of Electronics, 3rd ed., §1.7 — RC filters' },
+  { title: 'Analog Devices, MT-209: Passive Filters', href: 'https://www.analog.com/media/en/training-seminars/tutorials/MT-209.pdf' },
+];
+---
+
+<ToolLayout slug="rc-filter" references={references}>
+  <div class="tool-grid">
+    <form id="rc-form" class="panel" novalidate>
+      <h2 class="panel-title">Inputs</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="mode"
+          label="Filter type"
+          options={[
+            { value: 'lowpass', label: 'Low-pass' },
+            { value: 'highpass', label: 'High-pass' },
+          ]}
+        />
+        <Segmented
+          name="solve"
+          label="Solve for"
+          options={[
+            { value: 'fc', label: 'Cutoff' },
+            { value: 'c', label: 'Capacitor' },
+            { value: 'r', label: 'Resistor' },
+          ]}
+        />
+      </div>
+      <div class="fields" style="margin-top: var(--s4)">
+        <div data-when="fc c"><NumberInput name="r" label="Resistance R" value="10k" unit="Ω" help="Accepts 10k, 4k7, 1M…" /></div>
+        <div data-when="fc r"><NumberInput name="c" label="Capacitance C" value="100n" unit="F" help="Accepts 100n, 4.7u, 22p…" /></div>
+        <div data-when="c r" hidden><NumberInput name="fc" label="Target cutoff fc" value="1k" unit="Hz" /></div>
+        <NumberInput name="f" label="Signal frequency" value="1k" unit="Hz" help="To evaluate gain and phase" />
+      </div>
+    </form>
+
+    <section class="panel" aria-labelledby="rc-results">
+      <h2 class="panel-title" id="rc-results">Results</h2>
+      <dl class="results">
+        <ResultRow label="Cutoff frequency (−3 dB)" name="fc" primary />
+        <ResultRow label="Resistance R" name="r" />
+        <ResultRow label="Capacitance C" name="c" />
+        <ResultRow label="Time constant τ = RC" name="tau" />
+        <ResultRow label="Settling to 1 % (4.6 τ)" name="settle" />
+        <ResultRow label="Gain at signal frequency" name="gain" />
+        <ResultRow label="Attenuation at signal frequency" name="db" unit="dB" />
+        <ResultRow label="Phase at signal frequency" name="phase" unit="°" />
+      </dl>
+    </section>
+  </div>
+
+  <Fragment slot="formula">
+    <pre>fc = 1 / (2π · R · C)
+τ  = R · C
+
+Low-pass:  |H(f)| = 1 / √(1 + (f/fc)²)        φ = −atan(f/fc)
+High-pass: |H(f)| = (f/fc) / √(1 + (f/fc)²)   φ = 90° − atan(f/fc)
+
+Settling within x of the final value: t = −τ · ln(x)   (1 % → 4.6 τ)</pre>
+    <p>
+      The formulas assume an ideal first-order filter driven by a zero-impedance source into an infinite-impedance
+      load. A real source impedance adds to R, and the load (an ADC input, an op-amp) appears in parallel with C or R.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Using an RC filter in front of an ADC</h2>
+    <p>
+      A single RC low-pass before an ADC pin does two jobs: it removes noise above the band you care about, and the
+      capacitor acts as a charge reservoir for the ADC's sample-and-hold. For the second job, the capacitor should be
+      much larger than the internal sampling capacitor (often 5–20 pF on microcontrollers), and the RC time constant
+      must be short compared with the time between conversions, or successive samples will read low.
+    </p>
+    <p>
+      A first-order filter only rolls off at 20 dB per decade. If you need a sharp edge (for example anti-aliasing close
+      to Nyquist) use a higher-order active filter, or sample faster and filter digitally.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, setError, setResult, clearResults } from '../../scripts/tool-client';
+  import { formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import { rcCapacitanceFor, rcCutoff, rcResistanceFor, rcResponse, rcSettlingTime, type RcMode } from '../../lib/analog';
+
+  const ALL = ['fc', 'r', 'c', 'tau', 'settle', 'gain', 'db', 'phase'];
+
+  function positive(name: string, raw: string, label: string): number | null {
+    const v = parseNumber(raw);
+    if (v === null) return setError(name, `${label} must be a number, e.g. 10k.`), null;
+    if (v <= 0) return setError(name, `${label} must be greater than zero.`), null;
+    setError(name, null);
+    return v;
+  }
+
+  bindForm('rc-form', (v) => {
+    const solve = v.solve as 'fc' | 'c' | 'r';
+    document.querySelectorAll<HTMLElement>('[data-when]').forEach((el) => {
+      el.hidden = !el.dataset.when!.split(' ').includes(solve);
+    });
+
+    let r: number | null = null;
+    let c: number | null = null;
+    let fc: number | null = null;
+    if (solve === 'fc') {
+      r = positive('r', v.r, 'Resistance');
+      c = positive('c', v.c, 'Capacitance');
+      if (r !== null && c !== null) fc = rcCutoff(r, c);
+    } else if (solve === 'c') {
+      r = positive('r', v.r, 'Resistance');
+      fc = positive('fc', v.fc, 'Cutoff frequency');
+      if (r !== null && fc !== null) c = rcCapacitanceFor(fc, r);
+    } else {
+      c = positive('c', v.c, 'Capacitance');
+      fc = positive('fc', v.fc, 'Cutoff frequency');
+      if (c !== null && fc !== null) r = rcResistanceFor(fc, c);
+    }
+    const f = positive('f', v.f, 'Signal frequency');
+
+    if (r === null || c === null || fc === null) return clearResults(...ALL);
+    const tau = r * c;
+    setResult('fc', formatSI(fc, 'Hz'));
+    setResult('r', formatSI(r, 'Ω'));
+    setResult('c', formatSI(c, 'F'));
+    setResult('tau', formatSI(tau, 's'));
+    setResult('settle', formatSI(rcSettlingTime(tau, 0.01), 's'));
+
+    if (f === null) return clearResults('gain', 'db', 'phase');
+    const resp = rcResponse(v.mode as RcMode, fc, f);
+    setResult('gain', formatNumber(resp.gain, 4));
+    setResult('db', formatNumber(resp.gainDb, 4));
+    setResult('phase', formatNumber(resp.phaseDeg, 4));
+  });
+</script>

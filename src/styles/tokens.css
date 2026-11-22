@@ -1,0 +1,122 @@
+/*
+  BitBench design tokens.
+
+  Restrained and professional: neutral cool greys, white panels, near-black slate text and a
+  single deep blue reserved for things you can act on (links, focus, set bits, the main
+  result). Each category has a muted hue, used sparingly on icons only.
+  Dark mode uses deep grey rather than black to reduce glare. Prose is set in Inter; values and
+  bit strings in JetBrains Mono with tabular figures so columns line up. Both are self-hosted.
+*/
+
+:root {
+  /* Colour roles */
+  --bg: #f5f6f8;          /* page ground */
+  --surface: #ffffff;     /* panels */
+  --surface-2: #f8f9fb;   /* inputs, table heads, code */
+  --ink: #151c28;         /* text */
+  --ink-muted: #556070;   /* labels, help text */
+  --rule: #e3e6eb;        /* borders */
+  --rule-strong: #cdd2da;
+  --accent: #1f4fae;      /* links, focus, set bits, main result */
+  --accent-ink: #ffffff;  /* text on accent */
+  --accent-soft: #ebf0fa; /* highlighted rows, selected states */
+  --ok: #25704a;
+  --warn: #8f5b00;
+  --error: #b42318;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  --shadow-hover: 0 2px 4px rgba(16, 24, 40, 0.06), 0 4px 12px rgba(16, 24, 40, 0.08);
+
+  /* Category hues: muted, used only on icon tiles, chip icons and a thin top line */
+  --cat-wireless: #3b5f96;
+  --cat-wireless-soft: #eaf0f8;
+  --cat-timing: #5d5596;
+  --cat-timing-soft: #efedf7;
+  --cat-binary: #2e6e68;
+  --cat-binary-soft: #e8f3f1;
+  --cat-analog: #8c5a2e;
+  --cat-analog-soft: #f6efe7;
+
+  /* Type */
+  /* Self-hosted (npm @fontsource-variable/*): no third-party font requests. */
+  --font-text: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.375rem;
+  --text-2xl: 1.875rem;
+  --leading: 1.6;
+
+  /* Spacing scale (4px base) */
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.5rem;
+  --s6: 2rem;
+  --s7: 3rem;
+  --s8: 4rem;
+
+  --radius: 6px;
+  --radius-lg: 10px;
+  --measure: 70ch;
+  --page: 74rem;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #0f1217;
+    --surface: #171b22;
+    --surface-2: #1d222b;
+    --ink: #e6e9ef;
+    --ink-muted: #9aa3b1;
+    --rule: #272d37;
+    --rule-strong: #353d4a;
+    --accent: #8aaef0;
+    --accent-ink: #0f1217;
+    --accent-soft: #1c2740;
+    --ok: #6fc49a;
+    --warn: #ddb15a;
+    --error: #f28b82;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.35);
+    --cat-wireless: #9db7e3;
+    --cat-wireless-soft: #1f2a3c;
+    --cat-timing: #b4acdf;
+    --cat-timing-soft: #272439;
+    --cat-binary: #8fcac2;
+    --cat-binary-soft: #1b2e2c;
+    --cat-analog: #d9b38c;
+    --cat-analog-soft: #2f261d;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0f1217;
+  --surface: #171b22;
+  --surface-2: #1d222b;
+  --ink: #e6e9ef;
+  --ink-muted: #9aa3b1;
+  --rule: #272d37;
+  --rule-strong: #353d4a;
+  --accent: #8aaef0;
+  --accent-ink: #0f1217;
+  --accent-soft: #1c2740;
+  --ok: #6fc49a;
+  --warn: #ddb15a;
+  --error: #f28b82;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-hover: 0 4px 14px rgba(0, 0, 0, 0.35);
+  --cat-wireless: #9db7e3;
+  --cat-wireless-soft: #1f2a3c;
+  --cat-timing: #b4acdf;
+  --cat-timing-soft: #272439;
+  --cat-binary: #8fcac2;
+  --cat-binary-soft: #1b2e2c;
+  --cat-analog: #d9b38c;
+  --cat-analog-soft: #2f261d;
+  color-scheme: dark;
+}

@@ -1,0 +1,78 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import AuthorCard from '../components/AuthorCard.astro';
+import { SITE } from '../config';
+---
+
+<BaseLayout
+  title="Contact"
+  description={`Get in touch with ${SITE.owner}, the maker of ${SITE.name}, about your embedded project, a tool idea or a bug, on GitHub or LinkedIn.`}
+>
+  <div class="prose">
+    <h1>Contact</h1>
+    <p class="lede">
+      Need help with an embedded project, want to suggest a tool or report a wrong result? You can reach me,
+      {SITE.owner}, on LinkedIn or GitHub.
+    </p>
+  </div>
+
+  <AuthorCard />
+
+  <div class="prose tips">
+    <h2>Reporting a bug</h2>
+    <p>
+      The most useful bug report is a link: on any tool page, press <strong>Copy link to this result</strong>. The link
+      holds every input, so I can reproduce exactly what you saw. Add the result you expected and where it comes from
+      (datasheet, spec clause, another tool).
+    </p>
+    <h2>Suggesting a tool</h2>
+    <p>
+      Tell me what you calculate by hand or in a spreadsheet more often than you'd like, and which datasheet or
+      specification it comes from.
+    </p>
+  </div>
+
+  <section class="assist" aria-labelledby="assist-title">
+    <div class="assist-text">
+      <h2 id="assist-title">Need assistance with your project?</h2>
+      <p>
+        The calculators on {SITE.name} come from real product work, and the questions behind them rarely stop at a single
+        number. If you are stuck on firmware, LTE-M / NB-IoT, LoRaWAN or a low-power design, or would like a second
+        opinion, tell me briefly what you are building and where you are stuck.
+      </p>
+    </div>
+    <div class="btn-row">
+      <a class="btn btn--primary" href={SITE.linkedin} rel="noopener">Get in touch on LinkedIn</a>
+      <a class="btn" href={SITE.github} rel="noopener">GitHub profile</a>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .tips {
+    margin-top: var(--s6);
+  }
+  .assist {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s4) var(--s6);
+    margin-top: var(--s6);
+    padding: var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--accent);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+  }
+  .assist-text {
+    max-width: var(--measure);
+  }
+  .assist h2 {
+    margin-top: 0;
+  }
+  .assist p {
+    margin-bottom: 0;
+  }
+</style>

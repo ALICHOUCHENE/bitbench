@@ -1,0 +1,452 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import { CURRENT_UNITS, TIME_UNITS, MAX_STATES } from '../../lib/battery';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'Energizer CR2032 product datasheet',
+    note: 'capacity vs. load and pulse current, self-discharge ≈ 1 %/year',
+    href: 'https://data.energizer.com/pdfs/cr2032.pdf',
+  },
+  {
+    title: 'Texas Instruments SWRA349 — Coin cells and peak current draw',
+    href: 'https://www.ti.com/lit/wp/swra349/swra349.pdf',
+  },
+  { title: 'Saft LS 14500 (Li-SOCl2, AA) datasheet', note: 'self-discharge < 1 %/year at 20 °C, passivation' },
+  { title: 'D. Linden & T. Reddy, Handbook of Batteries, 4th ed. — capacity derating vs. rate and temperature' },
+];
+---
+
+<ToolLayout slug="battery-life" references={references}>
+  <div class="tool-grid">
+    <form id="bat-form" class="panel" novalidate>
+      <h2 class="panel-title">Battery</h2>
+      <div class="fields">
+        <NumberInput name="cap" label="Rated capacity" value="2400" unit="mAh" />
+        <NumberInput name="derate" label="Usable capacity" value="85" unit="%" help="Derating for cut-off voltage, pulses, temperature, ageing" />
+        <NumberInput name="sd" label="Self-discharge" value="1" unit="%/year" help="Li-SOCl2 / Li-MnO2 ≈ 1, alkaline ≈ 2–3, Li-ion ≈ 20–30" />
+      </div>
+
+      <h2 class="panel-title states-title">States in one cycle</h2>
+      <div class="states-head" aria-hidden="true">
+        <span>Label</span><span>Current</span><span>Time per cycle</span><span></span>
+      </div>
+      <ol id="states" class="states"></ol>
+      <div class="btn-row">
+        <button type="button" class="btn" id="add-state">Add state</button>
+        <button type="button" class="btn" id="reset-states">Reset example</button>
+      </div>
+      <p class="help" id="state-limit" hidden>Up to {MAX_STATES} states.</p>
+
+      <template id="state-tpl">
+        <li class="state">
+          <div class="field">
+            <label class="visually-hidden" data-l="label">Label</label>
+            <input type="text" data-k="label" maxlength="40" autocomplete="off" spellcheck="false" class="label-in" />
+          </div>
+          <div class="field">
+            <label class="visually-hidden" data-l="current">Current</label>
+            <div class="field-control">
+              <input type="text" data-k="current" inputmode="decimal" autocomplete="off" spellcheck="false" />
+              <select class="unit-select" data-k="currentUnit" aria-label="Current unit">
+                {CURRENT_UNITS.map((u) => <option value={u.value}>{u.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label class="visually-hidden" data-l="time">Time per cycle</label>
+            <div class="field-control">
+              <input type="text" data-k="time" inputmode="decimal" autocomplete="off" spellcheck="false" />
+              <select class="unit-select" data-k="timeUnit" aria-label="Time unit">
+                {TIME_UNITS.map((u) => <option value={u.value}>{u.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <button type="button" class="copy-btn remove" data-remove aria-label="Remove state">✕</button>
+          <p class="error state-err" aria-live="polite"></p>
+        </li>
+      </template>
+    </form>
+
+    <section class="panel" aria-labelledby="bat-results">
+      <h2 class="panel-title" id="bat-results">Results</h2>
+      <dl class="results">
+        <ResultRow label="Estimated lifetime" name="life" primary />
+        <ResultRow label="Lifetime in days" name="days" unit="d" />
+        <ResultRow label="Lifetime in years" name="years" unit="y" />
+        <ResultRow label="Average load current" name="avg" />
+        <ResultRow label="Charge per cycle" name="charge" unit="µAh" />
+        <ResultRow label="Cycle length" name="cycle" />
+        <ResultRow label="Cycles per day" name="perday" />
+        <ResultRow label="Usable capacity" name="usable" unit="mAh" />
+        <ResultRow label="Self-discharge as current" name="sdi" />
+      </dl>
+      <p class="note note--warn" id="life-note" hidden></p>
+    </section>
+  </div>
+
+  <section class="section" aria-labelledby="bat-break">
+    <div class="sec-head">
+      <h2 id="bat-break">Where the charge goes</h2>
+      <button class="copy-btn" type="button" id="copy-table" data-copy-text="">Copy table</button>
+    </div>
+    <div class="table-wrap">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>State</th>
+            <th class="num">Current</th>
+            <th class="num">Time</th>
+            <th class="num">Time share</th>
+            <th class="num">Charge / cycle</th>
+            <th class="bar-col">Share of charge</th>
+          </tr>
+        </thead>
+        <tbody id="bat-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <Fragment slot="formula">
+    <pre>Cycle length      T_c   = Σ t_i
+Average current   I_avg = Σ (I_i · t_i) / Σ t_i
+Charge per cycle  Q_c   = Σ (I_i · t_i)
+Usable capacity   C_u   = C_rated · usable %
+Self-discharge    I_sd  = C_rated · (sd %/year) / 8760 h
+Lifetime          L     = C_u / (I_avg + I_sd)</pre>
+    <p>
+      Self-discharge is modelled as a constant extra current taken from the rated capacity, which is a good
+      approximation for the low rates (≤ 3 %/year) of primary lithium and alkaline cells. It is pessimistic for
+      chemistries whose loss slows down over time and does not capture temperature: self-discharge roughly doubles
+      every 10 °C. Each state's share is its fraction of Q_c; the self-discharge share is reported separately.
+    </p>
+    <p>
+      Link format for other tools: <code>?states=Label:current_mA:duration_s;…&amp;cap=mAh&amp;derate=%&amp;sd=%/year</code>.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Estimating battery life of a duty-cycled device</h2>
+    <p>
+      Most IoT nodes spend almost all their time asleep and wake briefly to measure and transmit. Model one full cycle
+      as a list of states, each with its current and duration, and the average current is just the charge per cycle
+      divided by the cycle length. The breakdown table is usually the most useful output: it tells you whether to
+      attack the sleep current, shorten the radio-on time or report less often. A 5 µA sleep current over an hour is
+      18 mA·s — the same charge as 0.4 s of a 45 mA transmission.
+    </p>
+    <h3>Measure the states, don't copy them from the datasheet</h3>
+    <p>
+      Datasheet "typical" currents rarely include the regulator's quiescent current, sensor standby, pull-up resistors,
+      leakage through level shifters or a debug LED. Measure each state with a power analyser or a source meter that
+      can follow µA-to-hundreds-of-mA steps (a plain multimeter on its µA range adds a burden voltage that resets the
+      MCU). Include the boring states: wake-up and crystal start-up, network attach and retries, waiting for an
+      acknowledgement. For cellular modules the <a href={toolUrl('psm-edrx')}>PSM &amp; eDRX calculator</a> can
+      pre-fill this page with its sleep and active periods.
+    </p>
+    <h3>Why derate the capacity</h3>
+    <p>
+      Rated capacity is measured at a low constant drain, at room temperature, down to a cut-off voltage that your
+      circuit may not reach. Usable capacity drops when the load is pulsed (internal resistance causes voltage dips that
+      hit your brown-out level before the cell is empty), when it is cold, and when the device's minimum voltage is
+      higher than the datasheet's end point. A CR2032 rated 225–240 mAh at 0.2 mA delivers far less with 15–30 mA
+      radio pulses unless a capacitor buffers them. 80–85 % is a reasonable starting point for a well-buffered design
+      at room temperature; use 50–70 % for coin cells driving radio pulses or for outdoor devices in winter.
+    </p>
+    <h3>Self-discharge and shelf life</h3>
+    <p>
+      Primary lithium cells lose around 1 % per year (Li-SOCl2 bobbin cells less), alkaline cells 2–3 %, while
+      rechargeable chemistries are in another league: Li-ion and LiPo lose a few percent per month and standard NiMH up
+      to 20–30 % per month. For multi-year designs self-discharge can rival the load current, which is why the result
+      shows it separately. Beyond about 10 years other effects dominate: passivation of Li-SOCl2 cells (voltage delay on
+      the first pulse after long sleep), electrolyte dry-out and the manufacturer's shelf-life rating. Treat any
+      estimate above the rated shelf life with suspicion.
+    </p>
+    <h3>Sanity checks</h3>
+    <p>
+      Peak current matters as much as average current: check that the cell can supply your TX pulse without dropping
+      below your brown-out threshold at end of life and at the lowest operating temperature. Remember that a buck or LDO
+      draws input current, not output current — multiply by Vout/(Vin·η) for a switcher. And always leave margin:
+      firmware updates, retries in poor coverage and a growing message rate rarely make the battery last longer.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { clearResults, esc, setError, setResult, show } from '../../scripts/tool-client';
+  import { formatDuration, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import { readParams } from '../../lib/url-state';
+  import {
+    currentFactor,
+    displayCurrent,
+    displayTime,
+    estimateBattery,
+    MAX_STATES,
+    parseStates,
+    serializeStates,
+    timeFactor,
+    type PowerState,
+  } from '../../lib/battery';
+
+  const DEFAULT_STATES: PowerState[] = [
+    { label: 'Sleep', current: 0.005, duration: 3570 },
+    { label: 'Sensor read', current: 2, duration: 25 },
+    { label: 'Radio TX', current: 45, duration: 5 },
+  ];
+  const DEFAULT_STATES_PARAM = serializeStates(DEFAULT_STATES);
+  const RESULTS = ['life', 'days', 'years', 'avg', 'charge', 'cycle', 'perday', 'usable', 'sdi'];
+
+  const form = document.getElementById('bat-form') as HTMLFormElement;
+  const list = document.getElementById('states') as HTMLOListElement;
+  const tpl = document.getElementById('state-tpl') as HTMLTemplateElement;
+  const addBtn = document.getElementById('add-state') as HTMLButtonElement;
+  const tbody = document.getElementById('bat-rows')!;
+  const copyTable = document.getElementById('copy-table')!;
+  const lifeNote = document.getElementById('life-note')!;
+  const staticInputs = ['cap', 'derate', 'sd'].map((n) => form.elements.namedItem(n) as HTMLInputElement);
+  const staticDefaults: Record<string, string> = Object.fromEntries(staticInputs.map((el) => [el.name, el.value]));
+
+  let rowSeq = 0;
+
+  function addRow(s: PowerState) {
+    if (list.children.length >= MAX_STATES) return;
+    const li = tpl.content.firstElementChild!.cloneNode(true) as HTMLLIElement;
+    const id = `st${rowSeq++}`;
+    const c = displayCurrent(s.current);
+    const t = displayTime(s.duration);
+    const set = (k: string, v: string) => ((li.querySelector(`[data-k="${k}"]`) as HTMLInputElement).value = v);
+    set('label', s.label);
+    set('current', c.value);
+    set('currentUnit', c.unit);
+    set('time', t.value);
+    set('timeUnit', t.unit);
+    for (const k of ['label', 'current', 'time']) {
+      const input = li.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
+      input.id = `${id}-${k}`;
+      li.querySelector<HTMLLabelElement>(`[data-l="${k}"]`)!.htmlFor = input.id;
+    }
+    li.querySelector<HTMLElement>('.state-err')!.id = `${id}-err`;
+    li.querySelectorAll('input').forEach((el) => el.setAttribute('aria-describedby', `${id}-err`));
+    list.appendChild(li);
+  }
+
+  function setRows(states: PowerState[]) {
+    list.innerHTML = '';
+    for (const s of states) addRow(s);
+    syncButtons();
+  }
+
+  function syncButtons() {
+    const n = list.children.length;
+    addBtn.disabled = n >= MAX_STATES;
+    show('state-limit', n >= MAX_STATES);
+    list.querySelectorAll<HTMLButtonElement>('[data-remove]').forEach((b) => (b.disabled = n <= 1));
+  }
+
+  /** Read and validate the rows. Invalid rows get an inline message and are left out. */
+  function readRows(): { states: PowerState[]; invalid: number } {
+    const states: PowerState[] = [];
+    let invalid = 0;
+    Array.from(list.children).forEach((li, i) => {
+      const q = (k: string) => li.querySelector(`[data-k="${k}"]`) as HTMLInputElement;
+      const label = q('label').value.trim() || `State ${i + 1}`;
+      const iRaw = parseNumber(q('current').value);
+      const tRaw = parseNumber(q('time').value);
+      const iF = currentFactor(q('currentUnit').value) ?? 1;
+      const tF = timeFactor(q('timeUnit').value) ?? 1;
+      let msg = '';
+      if (iRaw === null) msg = 'Current must be a number, e.g. 5 or 0.5.';
+      else if (iRaw < 0) msg = 'Current cannot be negative.';
+      else if (tRaw === null) msg = 'Time must be a number, e.g. 20.';
+      else if (tRaw <= 0) msg = 'Time must be greater than zero.';
+      const badI = iRaw === null || iRaw < 0;
+      const badT = tRaw === null || tRaw <= 0;
+      if (badI) q('current').setAttribute('aria-invalid', 'true');
+      else q('current').removeAttribute('aria-invalid');
+      if (badT) q('time').setAttribute('aria-invalid', 'true');
+      else q('time').removeAttribute('aria-invalid');
+      li.querySelector('.state-err')!.textContent = msg;
+      if (msg) invalid++;
+      else states.push({ label, current: iRaw! * iF, duration: tRaw! * tF });
+    });
+    return { states, invalid };
+  }
+
+  function num(name: string, label: string, min: number, max: number, minInclusive = true): number | null {
+    const el = form.elements.namedItem(name) as HTMLInputElement;
+    const v = parseNumber(el.value);
+    if (v === null) return setError(name, `${label} must be a number.`), null;
+    if (minInclusive ? v < min : v <= min) return setError(name, `${label} must be ${minInclusive ? 'at least' : 'greater than'} ${min}.`), null;
+    if (v > max) return setError(name, `${label} must be at most ${max}.`), null;
+    setError(name, null);
+    return v;
+  }
+
+  let urlTimer: number | undefined;
+  function writeUrl(states: PowerState[]) {
+    window.clearTimeout(urlTimer);
+    urlTimer = window.setTimeout(() => {
+      const parts: string[] = [];
+      const ser = serializeStates(states);
+      // Keep ':' and ';' readable; they are legal in a query string.
+      if (ser !== DEFAULT_STATES_PARAM) parts.push(`states=${encodeURIComponent(ser).replace(/%3A/gi, ':').replace(/%3B/gi, ';')}`);
+      for (const el of staticInputs) if (el.value !== staticDefaults[el.name]) parts.push(`${el.name}=${encodeURIComponent(el.value)}`);
+      const query = parts.length ? `?${parts.join('&')}` : '';
+      history.replaceState(null, '', `${location.pathname}${query}${location.hash}`);
+    }, 250);
+  }
+
+  function update() {
+    const cap = num('cap', 'Capacity', 0, 1e7, false);
+    const derate = num('derate', 'Usable capacity', 0, 100, false);
+    const sd = num('sd', 'Self-discharge', 0, 100);
+    const { states, invalid } = readRows();
+    writeUrl(states);
+
+    if (cap === null || derate === null || sd === null || states.length === 0 || invalid > 0) {
+      clearResults(...RESULTS);
+      tbody.innerHTML = '';
+      copyTable.dataset.copyText = '';
+      show('life-note', false);
+      return;
+    }
+
+    const e = estimateBattery(cap, derate, sd, states);
+    const years = e.lifetime / (365 * 86400);
+    setResult('life', formatDuration(e.lifetime));
+    setResult('days', Number.isFinite(e.lifetime) ? formatNumber(e.lifetime / 86400, 5) : '∞');
+    setResult('years', Number.isFinite(e.lifetime) ? formatNumber(years, 4) : '∞');
+    setResult('avg', formatSI(e.avgCurrent * 1e-3, 'A', 5));
+    setResult('charge', formatNumber(e.chargePerCycle * 1000, 6));
+    setResult('cycle', formatDuration(e.cycle));
+    setResult('perday', formatNumber(e.cyclesPerDay, 6));
+    setResult('usable', formatNumber(e.usable, 6));
+    setResult('sdi', `${formatSI(e.selfDischargeCurrent * 1e-3, 'A', 4)} (${formatNumber(e.selfDischargeShare * 100, 3)} % of drain)`);
+
+    if (years > 10) {
+      lifeNote.textContent = 'More than 10 years: shelf life, passivation and electrolyte dry-out will likely limit the device before the charge runs out. Check the cell’s rated shelf life.';
+      show('life-note', true);
+    } else if (e.selfDischargeShare > 0.3) {
+      lifeNote.textContent = `Self-discharge is ${formatNumber(e.selfDischargeShare * 100, 3)} % of the total drain. Lowering the load current further will gain little; consider a chemistry with lower self-discharge.`;
+      show('life-note', true);
+    } else show('life-note', false);
+
+    const pctTxt = (x: number) => `${formatNumber(x * 100, 3)} %`;
+    tbody.innerHTML = e.states
+      .map(
+        (s) => `<tr><td>${esc(s.label)}</td><td class="num">${formatSI(s.current * 1e-3, 'A', 4)}</td>
+          <td class="num">${formatDuration(s.duration)}</td><td class="num">${pctTxt(s.timeShare)}</td>
+          <td class="num">${formatNumber(s.charge * 1000, 5)} µAh</td>
+          <td class="bar-col"><span class="bar" style="--w:${(s.share * 100).toFixed(2)}%"></span><span class="bar-val">${pctTxt(s.share)}</span></td></tr>`,
+      )
+      .join('');
+    copyTable.dataset.copyText = [
+      'State\tCurrent (mA)\tTime (s)\tTime share %\tCharge per cycle (uAh)\tCharge share %',
+      ...e.states.map(
+        (s) =>
+          `${s.label}\t${s.current}\t${s.duration}\t${formatNumber(s.timeShare * 100, 4)}\t${formatNumber(s.charge * 1000, 6)}\t${formatNumber(s.share * 100, 4)}`,
+      ),
+    ].join('\n');
+  }
+
+  // ---- Restore from the URL ----
+  const restored = readParams(location.search, staticDefaults);
+  for (const el of staticInputs) el.value = restored[el.name];
+  const fromUrl = parseStates(new URLSearchParams(location.search).get('states'));
+  setRows(fromUrl.length ? fromUrl : DEFAULT_STATES);
+
+  form.addEventListener('input', update);
+  form.addEventListener('change', update);
+  form.addEventListener('submit', (e) => e.preventDefault());
+  list.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('[data-remove]');
+    if (!btn || list.children.length <= 1) return;
+    btn.closest('li')!.remove();
+    syncButtons();
+    update();
+  });
+  addBtn.addEventListener('click', () => {
+    addRow({ label: `State ${list.children.length + 1}`, current: 1, duration: 1 });
+    syncButtons();
+    update();
+    (list.lastElementChild?.querySelector('[data-k="label"]') as HTMLInputElement | null)?.focus();
+  });
+  document.getElementById('reset-states')!.addEventListener('click', () => {
+    setRows(DEFAULT_STATES);
+    update();
+  });
+  update();
+</script>
+
+<style>
+  .states-title {
+    margin-top: var(--s5) !important;
+  }
+  .states {
+    list-style: none;
+    margin: 0 0 var(--s3);
+    padding: 0;
+    display: grid;
+    gap: var(--s2);
+  }
+  .state,
+  .states-head {
+    display: grid;
+    grid-template-columns: minmax(6rem, 1.2fr) minmax(7rem, 1fr) minmax(7rem, 1fr) auto;
+    gap: var(--s2);
+    align-items: start;
+  }
+  .states-head {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    margin-bottom: var(--s1);
+  }
+  .state .remove {
+    align-self: center;
+  }
+  .state-err {
+    grid-column: 1 / -1;
+  }
+  @media (max-width: 34rem) {
+    .states-head {
+      display: none;
+    }
+    .state {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+      padding-bottom: var(--s2);
+      border-bottom: 1px dashed var(--rule);
+    }
+    .state > .field:first-child {
+      grid-column: 1 / -1;
+    }
+  }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s3);
+  }
+  :global(.bar-col) {
+    min-width: 12rem;
+    width: 35%;
+  }
+  :global(td.bar-col) {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+  }
+  :global(.bar) {
+    flex: 1 1 auto;
+    height: 0.6rem;
+    background: linear-gradient(to right, var(--accent) var(--w), var(--rule) var(--w));
+    border-radius: var(--radius);
+  }
+  :global(.bar-val) {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    min-width: 4.5rem;
+    text-align: right;
+  }
+</style>

@@ -1,0 +1,458 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  { title: 'IEEE Std 754-2019, IEEE Standard for Floating-Point Arithmetic', href: 'https://standards.ieee.org/ieee/754/6210/', note: '§3.4 binary interchange format encodings, §6.2 NaNs' },
+  { title: 'D. Goldberg, What Every Computer Scientist Should Know About Floating-Point Arithmetic (ACM Computing Surveys, 1991)', href: 'https://docs.oracle.com/cd/E19957-01/806-3568/ncg_goldberg.html' },
+  { title: 'ISO/IEC 9899:2018 (C17), Annex F — IEC 60559 floating-point arithmetic', note: 'float = binary32, double = binary64' },
+  { title: 'ECMAScript DataView getFloat32 / setFloat32', href: 'https://tc39.es/ecma262/#sec-dataview-objects', note: 'used to cross-check the bit patterns' },
+];
+---
+
+<ToolLayout slug="float" references={references}>
+  <div class="tool-grid">
+    <form id="float-form" class="panel" novalidate>
+      <h2 class="panel-title">Input</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="prec"
+          label="Format"
+          options={[
+            { value: '32', label: 'float32 (single)' },
+            { value: '64', label: 'float64 (double)' },
+          ]}
+        />
+        <Segmented
+          name="dir"
+          label="Convert from"
+          options={[
+            { value: 'dec', label: 'Decimal value' },
+            { value: 'hex', label: 'Hex bits' },
+          ]}
+        />
+        <div data-when-dir="dec">
+          <NumberInput name="dec" label="Decimal value" value="0.1" inputmode="text" help="Any precision: 0.1, -2.5e-3, 3.14159265358979, inf, nan" />
+        </div>
+        <div data-when-dir="hex" hidden>
+          <NumberInput name="hex" label="Bit pattern (hex)" value="0x3DCCCCCD" inputmode="text" help="Big-endian value, e.g. 0x40490FDB, or memory bytes in little-endian order" />
+        </div>
+        <div data-when-dir="hex" hidden>
+          <Segmented
+            name="order"
+            label="Hex is written as"
+            options={[
+              { value: 'be', label: 'Value (big-endian)' },
+              { value: 'le', label: 'Memory bytes, little-endian' },
+            ]}
+          />
+        </div>
+      </div>
+    </form>
+
+    <section class="panel" aria-labelledby="float-results">
+      <h2 class="panel-title" id="float-results">Stored value</h2>
+      <dl class="results">
+        <ResultRow label="Hex (as an integer)" name="hexv" primary />
+        <ResultRow label="Shortest decimal that round-trips" name="short" />
+        <ResultRow label="C literal" name="clit" />
+        <ResultRow label="Classification" name="cls" />
+        <ResultRow label="Bytes in memory, little-endian (x86, ARM)" name="le" />
+        <ResultRow label="Bytes in memory, big-endian" name="be" />
+        <ResultRow label="Unsigned integer of the bits" name="uint" />
+      </dl>
+      <p class="note note--warn" id="fl-warn" hidden></p>
+    </section>
+  </div>
+
+  <section class="section panel" aria-labelledby="bits-title">
+    <h2 class="panel-title" id="bits-title">Bits — click a bit to flip it</h2>
+    <div class="bits" id="bits" role="group" aria-label="Bit pattern, most significant bit first"></div>
+    <p class="legend">
+      <span class="sw sw--sign"></span> sign <span class="sw sw--exp"></span> exponent <span id="exp-bits"></span>
+      <span class="sw sw--frac"></span> fraction <span id="frac-bits"></span>
+    </p>
+    <dl class="results">
+      <ResultRow label="Sign" name="sign" />
+      <ResultRow label="Exponent field (biased)" name="bexp" />
+      <ResultRow label="Exponent (unbiased)" name="uexp" />
+      <ResultRow label="Fraction field" name="frac" />
+      <ResultRow label="Value = significand × 2^e" name="form" />
+    </dl>
+  </section>
+
+  <section class="section panel" aria-labelledby="exact-title">
+    <h2 class="panel-title" id="exact-title">Exact value and rounding</h2>
+    <div class="exact">
+      <div class="exact-head"><span>Exact stored value (every digit)</span><button class="copy-btn" type="button" data-copy="#x-exact" aria-label="Copy exact stored value">Copy</button></div>
+      <output id="x-exact" data-result="exact">—</output>
+    </div>
+    <dl class="results">
+      <ResultRow data-when-dir="dec" label="Rounding error (stored − entered)" name="err" />
+      <ResultRow data-when-dir="dec" label="Relative error" name="rel" />
+      <ResultRow data-when-dir="dec" label="Error in ULPs" name="errulp" />
+      <ResultRow label="ULP (gap to the next float in this binade)" name="ulp" />
+      <ResultRow label="Next float up (nextafter → +∞)" name="up" />
+      <ResultRow label="Next float down (nextafter → −∞)" name="down" />
+    </dl>
+    <div class="exact" data-when-dir="dec">
+      <div class="exact-head"><span>Exact rounding error</span><button class="copy-btn" type="button" data-copy="#x-err" aria-label="Copy exact rounding error">Copy</button></div>
+      <output id="x-err" data-result="errexact">—</output>
+    </div>
+  </section>
+
+  <Fragment slot="formula">
+    <pre>float32: 1 sign | 8 exponent  (bias 127)  | 23 fraction
+float64: 1 sign | 11 exponent (bias 1023) | 52 fraction
+
+normal     (0 &lt; E &lt; max): value = (−1)^s × 1.fraction × 2^(E − bias)
+subnormal  (E = 0, f ≠ 0):  value = (−1)^s × 0.fraction × 2^(1 − bias)
+zero       (E = 0, f = 0):  ±0
+infinity   (E = max, f = 0): ±∞
+NaN        (E = max, f ≠ 0): quiet if the top fraction bit is 1, signalling otherwise
+
+ULP = 2^(max(E − bias, 1 − bias) − fraction bits)</pre>
+    <p>
+      Decimal input is converted with exact rational arithmetic (BigInt) and rounded once, to nearest with ties to even,
+      directly to the selected format. This matters for float32: converting to a double first and then to float rounds
+      twice and gives the wrong answer for some inputs near a halfway point. The exact stored value is the significand
+      times a power of two expanded to a finite decimal (every binary fraction has one), so every digit shown is exact.
+      Bit patterns are cross-checked with the browser's <code>DataView</code>.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Reading IEEE-754 values in firmware</h2>
+    <p>
+      A <code>float</code> stores 24 significant bits, about 7.2 decimal digits, and a <code>double</code> stores 53 bits,
+      about 15.9 digits. Most decimal fractions are not representable: 0.1f is really 0.100000001490116119384765625. That
+      is why <code>0.1f + 0.2f != 0.3f</code> can be true, why a loop that adds 0.1f a thousand times does not reach 100,
+      and why float equality tests in unit tests need a tolerance expressed in ULPs or relative error rather than a fixed
+      epsilon.
+    </p>
+    <h3>Precision runs out sooner than you think</h3>
+    <p>
+      The gap between adjacent floats grows with magnitude. Above 16,777,216 (2^24) a float cannot represent every
+      integer: a float millisecond counter loses 1 ms resolution after about 4.7 hours of uptime (2^24 ms) and stops
+      advancing altogether at about 9.3 hours (2^25 ms), when adding 1 is less than half an ULP. Keep time, counters and accumulated sums in integers or in double, and use the ULP and
+      next/previous values above to check the resolution you actually have at the magnitude you care about.
+    </p>
+    <h3>Decoding floats from a bus or a memory dump</h3>
+    <p>
+      Sensors, Modbus devices and BLE characteristics often send a float as four raw bytes. Cortex-M, x86 and RISC-V are
+      little-endian, so the bytes of 3.14159f (0x40490FDB) appear in memory as <code>DB 0F 49 40</code>. Paste the bytes
+      in the order you captured them and choose "Memory bytes, little-endian" if they came straight from RAM or a
+      little-endian protocol. Modbus devices disagree about word order, so if a value decodes as nonsense, try the other
+      byte order. In C, convert with <code>memcpy</code> into a <code>float</code> rather than casting a pointer, which
+      breaks strict aliasing and can fault on unaligned addresses. The
+      <a href={toolUrl('bytes')}>byte and endianness tool</a> can swap and reformat the bytes.
+    </p>
+    <h3>Subnormals, NaN and infinity</h3>
+    <p>
+      Values below 2^−126 (float) are subnormal: they lose precision gradually and, on many FPUs, are slow or flushed to
+      zero. The Cortex-M4F/M7 FPU has a flush-to-zero mode (FPSCR.FZ), and some DSP libraries enable it, so very small
+      results may become exactly 0. NaN compares unequal to everything, including itself, which is the portable way to
+      test for it (<code>x != x</code>). Quiet NaNs propagate through arithmetic; signalling NaNs raise the invalid
+      exception when used and are sometimes used as "uninitialised" markers. Exponent field all ones with a non-zero
+      fraction is always a NaN; the remaining fraction bits are a payload that hardware usually ignores.
+    </p>
+    <p>
+      For the last digit of a printed value, <code>printf("%.9g")</code> (float) and <code>"%.17g"</code> (double) always
+      round-trip. The "shortest decimal" above is the shortest string that converts back to the same bits, which is the
+      best literal to put in source code. If your target has no FPU, consider fixed-point; the
+      <a href={toolUrl('fixed-point')}>Q-format converter</a> shows the range and resolution trade-off.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, setError, setResult, show } from '../../scripts/tool-client';
+  import {
+    FORMATS,
+    bitsMaxFinite,
+    bitsToBytes,
+    decRatioSci,
+    decToSci,
+    decToString,
+    decodeBits,
+    encodeDecimal,
+    exactDecimal,
+    hexBits,
+    nextDown,
+    nextUp,
+    parseHexBits,
+    roundingError,
+    shortestDecimal,
+    storedDec,
+    ulpExp2,
+    type Dec,
+    type Decoded,
+    type FloatKind,
+  } from '../../lib/float754';
+
+  const form = document.getElementById('float-form') as HTMLFormElement;
+  const bitsEl = document.getElementById('bits')!;
+  const RESULTS = ['hexv', 'short', 'clit', 'cls', 'le', 'be', 'uint', 'sign', 'bexp', 'uexp', 'frac', 'form', 'exact', 'err', 'rel', 'errulp', 'ulp', 'up', 'down', 'errexact'];
+  let currentBits: bigint | null = null;
+  let currentKind: FloatKind = 32;
+
+  const bytesHex = (b: number[]) => b.map((x) => x.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+
+  function classify(d: Decoded): string {
+    const s = d.sign ? '−' : '+';
+    switch (d.cls) {
+      case 'zero':
+        return `${s}0 (zero)`;
+      case 'subnormal':
+        return `${s} subnormal`;
+      case 'normal':
+        return `${s} normal`;
+      case 'infinity':
+        return `${s}∞ (infinity)`;
+      case 'nan':
+        return `${d.quiet ? 'quiet' : 'signalling'} NaN, payload 0x${d.payload!.toString(16).toUpperCase()}`;
+    }
+  }
+
+  /** "2e-1" → "0.2" when the magnitude is ordinary; very small/large values stay in e-notation. */
+  function pretty(sci: string | null): string {
+    if (sci === null) return '—';
+    const x = Number(sci);
+    return Number.isFinite(x) && x !== 0 && Math.abs(x) >= 1e-4 && Math.abs(x) < 1e6 ? String(Number(x.toPrecision(4))) : sci;
+  }
+
+  function neighbour(bits: bigint, kind: FloatKind): string {
+    return `${shortestDecimal(bits, kind)}  (${hexBits(bits, kind)})`;
+  }
+
+  function renderBits(bits: bigint, kind: FloatKind): void {
+    const f = FORMATS[kind];
+    const s = bits.toString(2).padStart(f.bits, '0');
+    let html = '';
+    for (let i = 0; i < f.bits; i++) {
+      const pos = f.bits - 1 - i;
+      const cls = i === 0 ? 'sign' : i <= f.expBits ? 'exp' : 'frac';
+      const gap = i === 1 || i === 1 + f.expBits ? ' gap' : '';
+      html += `<button type="button" class="bit bit--${cls}${gap}" data-bit="${pos}" aria-pressed="${s[i] === '1'}" aria-label="Bit ${pos} (${cls === 'exp' ? 'exponent' : cls === 'frac' ? 'fraction' : 'sign'}) = ${s[i]}">${s[i]}</button>`;
+    }
+    bitsEl.innerHTML = html;
+    bitsEl.dataset.kind = String(kind);
+    document.getElementById('exp-bits')!.textContent = `(${f.expBits} bits)`;
+    document.getElementById('frac-bits')!.textContent = `(${f.fracBits} bits)`;
+  }
+
+  const run = bindForm('float-form', (v) => {
+    const kind = (v.prec === '64' ? 64 : 32) as FloatKind;
+    const f = FORMATS[kind];
+    document.querySelectorAll<HTMLElement>('[data-when-dir]').forEach((x) => (x.hidden = x.dataset.whenDir !== v.dir));
+    const warn = document.getElementById('fl-warn')!;
+    show('fl-warn', false);
+
+    let bits: bigint | null = null;
+    let entered: Dec | null = null;
+    let status = '';
+    if (v.dir === 'dec') {
+      setError('hex', null);
+      const r = encodeDecimal(v.dec, kind);
+      if (!r) {
+        setError('dec', 'Enter a decimal number such as 0.1, -2.5e-3, inf or nan.');
+      } else {
+        setError('dec', null);
+        bits = r.bits;
+        status = r.status;
+        if (r.parsed.kind === 'finite') entered = r.parsed.dec;
+      }
+    } else {
+      setError('dec', null);
+      const r = parseHexBits(v.hex, kind, v.order as 'be' | 'le');
+      if (!r.ok) setError('hex', r.error);
+      else {
+        setError('hex', null);
+        bits = r.bits;
+      }
+    }
+
+    currentBits = bits;
+    currentKind = kind;
+    if (bits === null) {
+      bitsEl.innerHTML = '';
+      return clearResults(...RESULTS);
+    }
+
+    const d = decodeBits(bits, kind);
+    renderBits(bits, kind);
+    const shortest = shortestDecimal(bits, kind);
+    setResult('hexv', hexBits(bits, kind));
+    setResult('short', shortest);
+    setResult(
+      'clit',
+      d.cls === 'nan' ? 'NAN' : d.cls === 'infinity' ? (d.sign ? '-INFINITY' : 'INFINITY') : kind === 32 ? `${/[.e]/.test(shortest) ? shortest : `${shortest}.0`}f` : /[.e]/.test(shortest) ? shortest : `${shortest}.0`,
+    );
+    setResult('cls', classify(d));
+    setResult('le', bytesHex(bitsToBytes(bits, kind, 'le')));
+    setResult('be', bytesHex(bitsToBytes(bits, kind, 'be')));
+    setResult('uint', bits.toString());
+    setResult('sign', `${d.sign} (${d.sign ? 'negative' : 'positive'})`);
+    setResult('bexp', `${d.biasedExp}  (0x${d.biasedExp.toString(16).toUpperCase()})`);
+    setResult(
+      'uexp',
+      d.cls === 'normal'
+        ? `${d.unbiasedExp} = ${d.biasedExp} − ${f.bias}`
+        : d.cls === 'subnormal' || d.cls === 'zero'
+          ? `${f.emin} (field 0: subnormal/zero use 1 − bias)`
+          : 'n/a (all ones: ∞ / NaN)',
+    );
+    setResult('frac', `0x${d.fraction.toString(16).toUpperCase().padStart(Math.ceil(f.fracBits / 4), '0')}`);
+    setResult('form', d.significand !== undefined ? `${d.significand} × 2^${d.exp2}` : '—');
+    setResult('exact', exactDecimal(bits, kind));
+
+    const ue = ulpExp2(bits, kind);
+    const ulpDec: Dec | null =
+      ue === null ? null : ue >= 0 ? { neg: false, n: 1n << BigInt(ue), e: 0 } : { neg: false, n: 5n ** BigInt(-ue), e: ue };
+    setResult('ulp', ulpDec ? `2^${ue} ≈ ${decToSci(ulpDec, 10)}` : '—');
+    setResult('up', d.cls === 'nan' ? '—' : neighbour(nextUp(bits, kind), kind));
+    setResult('down', d.cls === 'nan' ? '—' : neighbour(nextDown(bits, kind), kind));
+
+    if (v.dir === 'dec' && entered) {
+      const err = roundingError(bits, kind, entered);
+      const stored = storedDec(d);
+      if (err && stored) {
+        setResult('err', err.n === 0n ? '0 (exact)' : decToSci(err, 7));
+        setResult('rel', err.n === 0n ? '0' : pretty(decRatioSci(err, entered, 4)));
+        if (ulpDec && err.n !== 0n) {
+          setResult('errulp', pretty(decRatioSci(err, ulpDec, 4)));
+        } else setResult('errulp', '0');
+        setResult('errexact', decToString(err));
+      } else {
+        clearResults('err', 'rel', 'errulp', 'errexact');
+      }
+    } else clearResults('err', 'rel', 'errulp', 'errexact');
+
+    if (status === 'overflow') {
+      warn.textContent = `The value is beyond the float${kind} range (max ±${shortestDecimal(bitsMaxFinite(kind), kind)}) and rounds to infinity.`;
+      show('fl-warn', true);
+      clearResults('err', 'rel', 'errulp', 'errexact');
+    } else if (status === 'underflow') {
+      warn.textContent = `The value is below half the smallest subnormal (${shortestDecimal(1n, kind)}) and rounds to zero.`;
+      show('fl-warn', true);
+    } else if (d.cls === 'subnormal') {
+      warn.textContent = `Subnormal: only ${d.fraction.toString(2).length} significant bits remain. FPUs in flush-to-zero mode treat this as 0.`;
+      show('fl-warn', true);
+    }
+  });
+
+  // Flip a bit: switch to hex input with the edited pattern.
+  bitsEl.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-bit]');
+    if (!btn || currentBits === null) return;
+    const pos = BigInt(btn.dataset.bit!);
+    const next = currentBits ^ (1n << pos);
+    (form.querySelector('input[name="dir"][value="hex"]') as HTMLInputElement).checked = true;
+    (form.querySelector('input[name="order"][value="be"]') as HTMLInputElement).checked = true;
+    (form.elements.namedItem('hex') as HTMLInputElement).value = hexBits(next, currentKind);
+    run();
+    bitsEl.querySelector<HTMLButtonElement>(`button[data-bit="${pos}"]`)?.focus();
+  });
+</script>
+
+<style>
+  .bits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-bottom: var(--s3);
+  }
+  .bits :global(.bit) {
+    font-family: var(--font-mono);
+    font-size: var(--text-base);
+    font-weight: 600;
+    width: 1.6rem;
+    height: 2.1rem;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-top-width: 4px;
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--ink-muted);
+    cursor: pointer;
+  }
+  .bits[data-kind='64'] :global(.bit) {
+    width: 1.25rem;
+    font-size: var(--text-sm);
+  }
+  .bits :global(.bit[aria-pressed='true']) {
+    color: var(--ink);
+    background: var(--surface);
+  }
+  .bits :global(.bit--sign) {
+    border-top-color: var(--warn);
+  }
+  .bits :global(.bit--exp) {
+    border-top-color: var(--accent);
+  }
+  .bits :global(.bit--frac) {
+    border-top-color: var(--ok);
+  }
+  .bits :global(.bit.gap) {
+    margin-left: var(--s2);
+  }
+  .bits :global(.bit:hover) {
+    border-color: var(--ink-muted);
+  }
+  .legend {
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s1) var(--s2);
+  }
+  .sw {
+    display: inline-block;
+    width: 0.9rem;
+    height: 0.35rem;
+    border-radius: 1px;
+  }
+  .sw--sign {
+    background: var(--warn);
+  }
+  .sw--exp {
+    background: var(--accent);
+    margin-left: var(--s3);
+  }
+  .sw--frac {
+    background: var(--ok);
+    margin-left: var(--s3);
+  }
+  .exact {
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: var(--bg);
+    margin: 0 0 var(--s3);
+  }
+  .exact-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: var(--s1) var(--s2) var(--s1) var(--s3);
+    border-bottom: 1px solid var(--rule);
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+  }
+  .exact output {
+    display: block;
+    padding: var(--s3);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+  .section.panel {
+    margin-top: var(--s5);
+  }
+</style>

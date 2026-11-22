@@ -1,0 +1,53 @@
+---
+// Text input for numbers. Uses type="text" so engineers can type SI prefixes ("10k", "4k7",
+// "100n") — parse with parseNumber() from src/lib/format.ts. Pair with an error message slot.
+interface Props {
+  name: string;
+  label: string;
+  value?: string | number;
+  /** Static unit shown after the input. */
+  unit?: string;
+  /** Optional unit selector instead of a static unit: [{ value, label }]. Its name is `${name}Unit`. */
+  units?: { value: string; label: string }[];
+  unitValue?: string;
+  help?: string;
+  inputmode?: 'decimal' | 'numeric' | 'text';
+  placeholder?: string;
+  id?: string;
+}
+
+const { name, label, value = '', unit, units, unitValue, help, inputmode = 'decimal', placeholder } = Astro.props;
+const id = Astro.props.id ?? `f-${name}`;
+const describedBy = [help ? `${id}-help` : '', `${id}-err`].filter(Boolean).join(' ');
+---
+
+<div class="field">
+  <label for={id}>{label}</label>
+  <div class="field-control">
+    <input
+      type="text"
+      id={id}
+      name={name}
+      value={String(value)}
+      inputmode={inputmode}
+      autocomplete="off"
+      spellcheck="false"
+      placeholder={placeholder}
+      aria-describedby={describedBy}
+    />
+    {unit && <span class="unit">{unit}</span>}
+    {
+      units && (
+        <select class="unit-select" name={`${name}Unit`} aria-label={`${label} unit`}>
+          {units.map((u) => (
+            <option value={u.value} selected={u.value === (unitValue ?? units[0].value)}>
+              {u.label}
+            </option>
+          ))}
+        </select>
+      )
+    }
+  </div>
+  {help && <p class="help" id={`${id}-help`}>{help}</p>}
+  <p class="error" id={`${id}-err`} data-error-for={name} aria-live="polite"></p>
+</div>

@@ -1,0 +1,18 @@
+---
+// Generated code, AT commands or tables with a copy button. Fill with setResult(name, text).
+interface Props {
+  name: string;
+  label: string;
+}
+
+const { name, label } = Astro.props;
+const id = `c-${name}`;
+---
+
+<div class="code-out">
+  <div class="code-out-head">
+    <span>{label}</span>
+    <button class="copy-btn" type="button" data-copy={`#${id}`} aria-label={`Copy ${label}`}>Copy</button>
+  </div>
+  <pre><code id={id} data-result={name}>—</code></pre>
+</div>

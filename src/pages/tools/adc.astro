@@ -1,0 +1,408 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import Toggle from '../../components/Toggle.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'STMicroelectronics DS5319, STM32F103x8/xB datasheet — 12-bit ADC characteristics, Equation 1 (R_AIN max)',
+    href: 'https://www.st.com/resource/en/datasheet/stm32f103c8.pdf',
+  },
+  {
+    title: 'STMicroelectronics AN2834: How to get the best ADC accuracy in STM32 microcontrollers',
+    href: 'https://www.st.com/resource/en/application_note/an2834-how-to-get-the-best-adc-accuracy-in-stm32-microcontrollers-stmicroelectronics.pdf',
+  },
+  { title: 'Analog Devices MT-001: Taking the Mystery out of the Infamous Formula, "SNR = 6.02N + 1.76dB"', href: 'https://www.analog.com/media/en/training-seminars/tutorials/MT-001.pdf' },
+  { title: 'IEC 60063:2015 — Preferred number series for resistors and capacitors (E24, E96)' },
+];
+---
+
+<ToolLayout slug="adc" references={references}>
+  <div class="tool-grid">
+    <form id="adc-form" class="panel" novalidate>
+      <h2 class="panel-title">ADC</h2>
+      <div class="fields">
+        <NumberInput name="bits" label="Resolution" value="12" unit="bit" inputmode="numeric" help="8 to 24 bits" />
+        <NumberInput name="vref" label="Reference Vref" value="3.3" unit="V" />
+      </div>
+      <div class="fields fields--wide" style="margin-top: var(--s3)">
+        <Segmented
+          name="conv"
+          label="LSB definition"
+          options={[
+            { value: 'pow2', label: 'Vref / 2ᴺ' },
+            { value: 'pow2m1', label: 'Vref / (2ᴺ − 1)' },
+          ]}
+        />
+      </div>
+      <p class="help">
+        Vref / 2ᴺ is the ideal transfer function in most MCU datasheets (top code = Vref − 1 LSB). Some datasheets
+        and code examples scale by 2ᴺ − 1 so the top code equals Vref; the difference is 1 LSB at full scale.
+      </p>
+      <div class="fields" style="margin-top: var(--s3)">
+        <NumberInput name="code" label="Counts → voltage" value="2048" unit="code" inputmode="numeric" help="Decimal or 0x hex" />
+        <NumberInput name="vin" label="Voltage → counts" value="1.65" unit="V" help="At the ADC pin" />
+      </div>
+
+      <h2 class="panel-title" style="margin-top: var(--s5)">Divider in front of the ADC</h2>
+      <Toggle name="div" label="Input goes through a resistor divider (R1 top, R2 to ground)" />
+      <div id="div-fields" class="fields" style="margin-top: var(--s3)" hidden>
+        <NumberInput name="r1" label="R1 (top)" value="30k" unit="Ω" />
+        <NumberInput name="r2" label="R2 (bottom)" value="10k" unit="Ω" />
+        <NumberInput name="vmax" label="Max input voltage" value="12" unit="V" help="For current, power and the design helper" />
+        <NumberInput
+          name="zmax"
+          label="Max source impedance"
+          value="10k"
+          unit="Ω"
+          help="From your MCU datasheet; depends on the sampling time"
+        />
+      </div>
+    </form>
+
+    <section class="panel" aria-labelledby="adc-results">
+      <h2 class="panel-title" id="adc-results">Results</h2>
+      <dl class="results">
+        <ResultRow label="LSB size" name="lsb" primary />
+        <ResultRow label="Code range" name="range" />
+        <ResultRow label="Voltage of the top code" name="vtop" />
+        <ResultRow label="Ideal SNR, full-scale sine (6.02·N + 1.76)" name="snr" unit="dB" />
+      </dl>
+      <h3 class="sub">Counts → voltage</h3>
+      <dl class="results">
+        <ResultRow label="Voltage at the ADC pin" name="cv" />
+        <div data-div hidden><ResultRow label="Voltage before the divider" name="cvin" /></div>
+      </dl>
+      <h3 class="sub">Voltage → counts</h3>
+      <dl class="results">
+        <div data-div hidden><ResultRow label="Voltage at the ADC pin" name="vpin" /></div>
+        <ResultRow label="Expected code (decimal)" name="vcode" />
+        <ResultRow label="Expected code (hex)" name="vhex" />
+        <ResultRow label="Exact V / LSB" name="vexact" />
+      </dl>
+      <p class="note note--warn" id="sat-note" hidden>
+        The input is above the voltage of the top code: the converter saturates at its maximum code.
+      </p>
+
+      <div data-div hidden>
+        <h3 class="sub">Divider</h3>
+        <dl class="results">
+          <ResultRow label="Ratio R2 / (R1 + R2)" name="ratio" />
+          <ResultRow label="Max measurable input (pin = Vref)" name="vmeas" />
+          <ResultRow label="LSB referred to the input" name="lsbin" />
+          <ResultRow label="Divider current at max input" name="idiv" />
+          <ResultRow label="Power at max input (total)" name="pdiv" />
+          <ResultRow label="Power in R1 / R2" name="pr" />
+          <ResultRow label="Source impedance R1 ∥ R2" name="zth" />
+        </dl>
+        <p class="note" id="z-note"></p>
+        <p class="note note--error" id="vmax-note" hidden></p>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel section" id="design" aria-labelledby="design-title" hidden>
+    <h2 class="panel-title" id="design-title">Divider design helper</h2>
+    <p class="help">
+      Standard-value pairs whose ratio is as close as possible to Vref / Vmax without exceeding it (so the maximum
+      input never drives the pin above Vref), with R1 ∥ R2 at or below the source-impedance limit. Among equal ratios
+      the highest-impedance pair is chosen, to minimise divider current.
+    </p>
+    <dl class="results">
+      <ResultRow label="Ideal ratio Vref / Vmax" name="kideal" />
+    </dl>
+    <div class="table-wrap" style="margin-top: var(--s3)">
+      <table class="data">
+        <thead>
+          <tr>
+            <th>Series</th><th class="num">R1</th><th class="num">R2</th><th class="num">Ratio</th><th class="num">Pin at Vmax</th>
+            <th class="num">R1 ∥ R2</th><th class="num">Current</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="design-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <Fragment slot="formula">
+    <pre>LSB = Vref / 2ᴺ            (or Vref / (2ᴺ − 1), see toggle)
+V    = code · LSB
+code = round(V / LSB), clamped to 0 … 2ᴺ − 1
+
+Divider (R1 top, R2 bottom):
+  k        = R2 / (R1 + R2)
+  V_pin    = k · V_in          V_in = V_pin / k
+  V_in,max = Vref / k
+  I        = V_in / (R1 + R2)   P = V_in² / (R1 + R2)
+  R_source = R1 · R2 / (R1 + R2)
+
+Ideal SNR (full-scale sine) = 6.02 · N + 1.76 dB</pre>
+    <p>
+      Rounding to the nearest code models an ideal converter whose first transition is at ½ LSB. Real converters add
+      offset, gain error and INL of a few LSB; check the datasheet's total unadjusted error (TUE) before trusting the
+      last bits. The divider figures assume no load: the ADC's leakage current and the sampling capacitor are covered in
+      the explanation below.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Getting a correct reading from a SAR ADC</h2>
+    <p>
+      On almost every microcontroller the ideal transfer function is <code>code = V / Vref · 2ᴺ</code>, so one LSB is
+      Vref / 4096 for a 12-bit converter and the top code 4095 means Vref − 1 LSB, not Vref. Many code examples divide
+      by 4095 instead. Neither is a bug as long as you are consistent, but the 1-LSB difference matters when you
+      calibrate against a reference or compare two firmware versions. The toggle above lets you match whatever your
+      datasheet or legacy code does.
+    </p>
+    <p>
+      Vref is the real limit on accuracy. If it is the supply rail, a 3.3 V regulator with ±2 % tolerance already moves
+      every reading by ±80 LSB at 12 bits. Measure the reference (STM32 parts expose VREFINT for this), use a
+      dedicated reference, or measure ratiometrically: if the sensor is powered from the same rail as Vref, the
+      supply error cancels.
+    </p>
+    <h3>Dividers: ratio, power and impedance</h3>
+    <p>
+      To measure a battery or a 12 V rail, a divider scales the input into 0…Vref. Choose the ratio so the highest
+      input you expect, plus margin, stays below Vref, then choose the resistance level. Higher values waste less
+      current, which matters on a battery that is always connected to the divider, but they raise the source impedance
+      the ADC sees.
+    </p>
+    <p>
+      A SAR ADC samples by connecting a small capacitor (a few pF) to the pin for the sampling time. That capacitor has
+      to charge through the source impedance, which for a divider is R1 ∥ R2, to within a fraction of an LSB. The STM32F1
+      datasheet gives the limit for an error below ¼ LSB as <code>R_AIN &lt; t_S / (f_ADC · C_ADC · ln(2ᴺ⁺²)) − R_ADC</code>. The allowed source impedance therefore grows
+      with the sampling time you configure, so there is no single correct number. Look up the R_AIN or sampling-time
+      table for your part and enter it as the limit.
+    </p>
+    <p>
+      If you need high-value resistors (for example 1 MΩ / 330 kΩ to keep a battery drain below 10 µA), put a
+      capacitor from the pin to ground. A few tens of nF supply the charge for each sample, and the divider only has to
+      top it up between conversions. This works for slowly changing signals, and the RC time constant then sets your
+      bandwidth (see the <a href={toolUrl('rc-filter')}>RC filter calculator</a>). Pin leakage current, often specified
+      as up to ±1 µA, also flows through R1 ∥ R2 and becomes an offset: 1 µA into 250 kΩ is 250 mV.
+    </p>
+    <h3>Resistor tolerance</h3>
+    <p>
+      With two 1 % resistors the worst-case ratio error is ±2 %·(1 − k): ±1.45 % for a 12 V → 3.3 V divider (k = 0.275), which is about ±60 LSB at 12 bits. For battery gauging, use 0.1 % parts
+      or calibrate the ratio once in production. The design helper picks E24 or E96 values. E96 values usually come in
+      1 % tolerance or better, and in practice they get the ratio closer to the ideal one.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<style>
+  /* .fields / .panel set display, which would override the hidden attribute. */
+  [hidden] {
+    display: none !important;
+  }
+  .sub {
+    font-size: var(--text-sm);
+    font-weight: 650;
+    margin: var(--s4) 0 0;
+  }
+  #design :global(.btn) {
+    padding-block: 0.1rem;
+  }
+</style>
+
+<script>
+  import { bindForm, setError, setResult, clearResults, show, esc } from '../../scripts/tool-client';
+  import { formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import {
+    adcCodeToVoltage,
+    adcIdealSnrDb,
+    adcLsb,
+    adcMaxCode,
+    adcVoltageToCode,
+    dividerLoad,
+    dividerRatio,
+    suggestDivider,
+    type AdcConvention,
+  } from '../../lib/analog';
+  import { eValuesInRange, type ESeries } from '../../lib/eseries';
+
+  const form = document.getElementById('adc-form') as HTMLFormElement;
+  const CORE = ['lsb', 'range', 'vtop', 'snr', 'cv', 'cvin', 'vpin', 'vcode', 'vhex', 'vexact'];
+  const DIV = ['ratio', 'vmeas', 'lsbin', 'idiv', 'pdiv', 'pr', 'zth', 'kideal'];
+  const SERIES: ESeries[] = ['E24', 'E96'];
+  const VALUES = Object.fromEntries(SERIES.map((s) => [s, eValuesInRange(s, 100, 10e6)])) as Record<ESeries, number[]>;
+
+  /** Value suitable for typing back into an input: 36000 → "36k". */
+  const compact = (v: number) => formatSI(v, '', 4).replace(' ', '');
+
+  function num(name: string, raw: string, label: string, opts: { min?: number; positive?: boolean } = {}): number | null {
+    const v = parseNumber(raw);
+    if (v === null) return setError(name, `${label} must be a number.`), null;
+    if (opts.positive && v <= 0) return setError(name, `${label} must be greater than zero.`), null;
+    if (opts.min !== undefined && v < opts.min) return setError(name, `${label} must be at least ${opts.min}.`), null;
+    setError(name, null);
+    return v;
+  }
+
+  function parseCode(raw: string): number | null {
+    const s = raw.trim();
+    if (/^0x[0-9a-f]+$/i.test(s)) return parseInt(s.slice(2), 16);
+    if (/^\d+$/.test(s)) return Number(s);
+    return null;
+  }
+
+  const run = bindForm(form, (v) => {
+    const useDiv = v.div === '1';
+    show('div-fields', useDiv);
+    document.querySelectorAll<HTMLElement>('[data-div]').forEach((el) => (el.hidden = !useDiv));
+    show('design', useDiv);
+    const vinLabel = form.querySelector<HTMLLabelElement>('label[for="f-vin"]');
+    if (vinLabel) vinLabel.textContent = useDiv ? 'Input voltage → counts' : 'Voltage → counts';
+    const vinHelp = document.getElementById('f-vin-help');
+    if (vinHelp) vinHelp.textContent = useDiv ? 'Before the divider' : 'At the ADC pin';
+
+    // --- ADC core ---
+    let bits: number | null = null;
+    const b = parseNumber(v.bits);
+    if (b === null || !Number.isInteger(b) || b < 8 || b > 24) setError('bits', 'Resolution must be a whole number from 8 to 24.');
+    else (setError('bits', null), (bits = b));
+    const vref = num('vref', v.vref, 'Vref', { positive: true });
+    const conv = v.conv as AdcConvention;
+
+    let ratio: number | null = null;
+    let r1: number | null = null;
+    let r2: number | null = null;
+    if (useDiv) {
+      r1 = num('r1', v.r1, 'R1', { min: 0 });
+      r2 = num('r2', v.r2, 'R2', { positive: true });
+      if (r1 !== null && r2 !== null) ratio = dividerRatio(r1, r2);
+    }
+
+    if (bits === null || vref === null) {
+      clearResults(...CORE, ...DIV);
+      show('sat-note', false);
+      return;
+    }
+    const lsb = adcLsb(vref, bits, conv);
+    const max = adcMaxCode(bits);
+    setResult('lsb', formatSI(lsb, 'V'));
+    setResult('range', `0 … ${max} (0x${max.toString(16).toUpperCase()})`);
+    setResult('vtop', formatSI(adcCodeToVoltage(max, vref, bits, conv), 'V', 6));
+    setResult('snr', formatNumber(adcIdealSnrDb(bits), 4));
+
+    // Counts → voltage
+    const code = parseCode(v.code);
+    if (code === null) {
+      setError('code', 'Counts must be a whole number (decimal or 0x hex).');
+      clearResults('cv', 'cvin');
+    } else if (code > max) {
+      setError('code', `Counts must be between 0 and ${max} for a ${bits}-bit ADC.`);
+      clearResults('cv', 'cvin');
+    } else {
+      setError('code', null);
+      const vp = adcCodeToVoltage(code, vref, bits, conv);
+      setResult('cv', formatSI(vp, 'V', 6));
+      if (useDiv && ratio !== null) setResult('cvin', formatSI(vp / ratio, 'V', 6));
+      else clearResults('cvin');
+    }
+
+    // Voltage → counts
+    let sat = false;
+    const vin = num('vin', v.vin, 'Voltage');
+    const vinTarget = useDiv ? (ratio !== null && vin !== null ? vin * ratio : null) : vin;
+    clearResults('vpin', 'vcode', 'vhex', 'vexact');
+    if (vin !== null && vinTarget !== null) {
+      if (useDiv) setResult('vpin', formatSI(vinTarget, 'V', 6));
+      if (vinTarget < 0) setError('vin', 'Voltage must not be negative: the ADC input range is 0 … Vref.');
+      else if (vinTarget > vref) {
+        setError(
+          'vin',
+          useDiv
+            ? `${formatSI(vin, 'V')} gives ${formatSI(vinTarget, 'V')} at the pin, above Vref (${formatSI(vref, 'V')}). Max input is ${formatSI(vref / ratio!, 'V')}.`
+            : `Voltage is above Vref (${formatSI(vref, 'V')}): the reading saturates at ${max} and the pin may be overdriven.`,
+        );
+      } else {
+        const res = adcVoltageToCode(vinTarget, vref, bits, conv);
+        sat = res.saturated;
+        setResult('vcode', String(res.code));
+        setResult('vhex', `0x${res.code.toString(16).toUpperCase().padStart(Math.ceil(bits / 4), '0')}`);
+        setResult('vexact', formatNumber(res.exact, 7));
+      }
+    }
+    show('sat-note', sat);
+
+    // --- Divider ---
+    const zmax = useDiv ? num('zmax', v.zmax, 'Max source impedance', { positive: true }) : null;
+    let vmax = useDiv ? num('vmax', v.vmax, 'Max input voltage', { positive: true }) : null;
+    if (!useDiv || ratio === null || r1 === null || r2 === null) {
+      clearResults(...DIV);
+      return;
+    }
+    const vmeas = vref / ratio;
+    setResult('ratio', formatNumber(ratio, 6));
+    setResult('vmeas', formatSI(vmeas, 'V', 5));
+    setResult('lsbin', formatSI(lsb / ratio, 'V'));
+
+    const vmaxNote = document.getElementById('vmax-note')!;
+    if (vmax !== null && vmax > vmeas * (1 + 1e-12)) {
+      vmaxNote.hidden = false;
+      vmaxNote.textContent = `At the max input of ${formatSI(vmax, 'V')} the pin sees ${formatSI(vmax * ratio, 'V')}, above Vref. Increase R1 or reduce R2.`;
+    } else vmaxNote.hidden = true;
+
+    const vLoad = vmax ?? vmeas;
+    const load = dividerLoad(vLoad, r1, r2);
+    setResult('idiv', formatSI(load.current, 'A'));
+    setResult('pdiv', formatSI(load.power, 'W'));
+    setResult('pr', `${formatSI(load.powerR1, 'W', 3)} / ${formatSI(load.powerR2, 'W', 3)}`);
+    setResult('zth', formatSI(load.sourceImpedance, 'Ω'));
+
+    const zNote = document.getElementById('z-note')!;
+    if (zmax === null) {
+      zNote.hidden = true;
+    } else if (load.sourceImpedance > zmax) {
+      zNote.hidden = false;
+      zNote.className = 'note note--warn';
+      zNote.textContent = `Source impedance ${formatSI(load.sourceImpedance, 'Ω')} exceeds the ${formatSI(zmax, 'Ω')} limit: the sampling capacitor will not settle and readings will be low. Lower the resistor values, increase the sampling time, add a capacitor at the pin (slow signals) or buffer with an op-amp.`;
+    } else {
+      zNote.hidden = false;
+      zNote.className = 'note note--ok';
+      zNote.textContent = `Source impedance ${formatSI(load.sourceImpedance, 'Ω')} is within the ${formatSI(zmax, 'Ω')} limit.`;
+    }
+
+    // --- Design helper ---
+    const body = document.getElementById('design-body')!;
+    if (vmax === null || zmax === null) {
+      clearResults('kideal');
+      body.innerHTML = '';
+      return;
+    }
+    const k = vref / vmax;
+    if (k >= 1) {
+      setResult('kideal', 'none needed');
+      body.innerHTML = `<tr><td colspan="8">Max input is at or below Vref: no divider is needed.</td></tr>`;
+      return;
+    }
+    setResult('kideal', formatNumber(k, 6));
+    body.innerHTML = SERIES.map((s) => {
+      const p = suggestDivider(k, zmax, VALUES[s]);
+      if (!p) return `<tr><td>${s}</td><td colspan="7">No pair from 100 Ω to 10 MΩ meets the impedance limit.</td></tr>`;
+      const i = vmax! / (p.r1 + p.r2);
+      return `<tr>
+        <td>${s}</td>
+        <td class="num">${esc(formatSI(p.r1, 'Ω', 4))}</td>
+        <td class="num">${esc(formatSI(p.r2, 'Ω', 4))}</td>
+        <td class="num">${esc(formatNumber(p.ratio, 5))}</td>
+        <td class="num">${esc(formatSI(vmax! * p.ratio, 'V', 4))}</td>
+        <td class="num">${esc(formatSI(p.sourceImpedance, 'Ω', 4))}</td>
+        <td class="num">${esc(formatSI(i, 'A', 3))}</td>
+        <td><button class="btn" type="button" data-use-r1="${compact(p.r1)}" data-use-r2="${compact(p.r2)}">Use</button></td>
+      </tr>`;
+    }).join('');
+  });
+
+  document.getElementById('design-body')!.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-use-r1]');
+    if (!btn) return;
+    (form.elements.namedItem('r1') as HTMLInputElement).value = btn.dataset.useR1!;
+    (form.elements.namedItem('r2') as HTMLInputElement).value = btn.dataset.useR2!;
+    run();
+  });
+</script>

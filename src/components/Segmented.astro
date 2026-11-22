@@ -1,0 +1,27 @@
+---
+// Radio-button group shown as a segmented control. Good for 2–5 mutually exclusive modes.
+interface Props {
+  name: string;
+  label: string;
+  options: { value: string; label: string }[];
+  value?: string;
+}
+
+const { name, label, options, value } = Astro.props;
+const selected = value ?? options[0]?.value;
+---
+
+<fieldset class="field">
+  <legend class="label">{label}</legend>
+  <div class="segmented">
+    {
+      options.map((o) => (
+        <label>
+          <input type="radio" name={name} value={o.value} checked={o.value === selected} />
+          <span>{o.label}</span>
+        </label>
+      ))
+    }
+  </div>
+  <p class="error" data-error-for={name} aria-live="polite"></p>
+</fieldset>

@@ -1,0 +1,31 @@
+---
+interface Props {
+  name: string;
+  label: string;
+  options: { value: string; label: string }[];
+  value?: string;
+  help?: string;
+  id?: string;
+}
+
+const { name, label, options, value, help } = Astro.props;
+const id = Astro.props.id ?? `f-${name}`;
+const selected = value ?? options[0]?.value;
+---
+
+<div class="field">
+  <label for={id}>{label}</label>
+  <div class="field-control">
+    <select id={id} name={name} aria-describedby={help ? `${id}-help` : undefined}>
+      {
+        options.map((o) => (
+          <option value={o.value} selected={o.value === selected}>
+            {o.label}
+          </option>
+        ))
+      }
+    </select>
+  </div>
+  {help && <p class="help" id={`${id}-help`}>{help}</p>}
+  <p class="error" data-error-for={name} aria-live="polite"></p>
+</div>

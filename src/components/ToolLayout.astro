@@ -1,0 +1,258 @@
+---
+// Wraps every tool page: heading, lede, the tool itself, "How it's calculated",
+// an explainer article for readers and search engines, references and feedback links.
+import BaseLayout from '../layouts/BaseLayout.astro';
+import CategoryIcon from './CategoryIcon.astro';
+import ToolIcon from './ToolIcon.astro';
+import { CATEGORIES, TOOLS, getTool } from '../tools';
+import { toolUrl, url } from '../utils/paths';
+
+export interface Reference {
+  /** Document name, e.g. "3GPP TS 24.008 §10.5.7.4a — GPRS Timer 3". */
+  title: string;
+  href?: string;
+  note?: string;
+}
+
+interface Props {
+  slug: string;
+  references: Reference[];
+}
+
+const { slug, references } = Astro.props;
+const tool = getTool(slug);
+const category = CATEGORIES.find((c) => c.id === tool.category)!;
+const related = TOOLS.filter((t) => t.category === tool.category && t.slug !== slug);
+const hasExplainer = Astro.slots.has('explainer');
+
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'WebApplication',
+  name: tool.name,
+  description: tool.description,
+  applicationCategory: 'EngineeringApplication',
+  operatingSystem: 'Any (web browser)',
+  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  isAccessibleForFree: true,
+  url: new URL(toolUrl(slug), Astro.site).href,
+};
+---
+
+<BaseLayout title={tool.title} description={tool.description} jsonLd={jsonLd}>
+  <header class={`tool-hero cat--${category.id}`}>
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <a href={url('/')}>Tools</a>
+      <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg>
+      <a href={`${url('/')}#cat-${category.id}`} class="crumb-cat"><CategoryIcon id={category.id} size={14} />{category.label}</a>
+    </nav>
+    <div class="tool-head">
+      <span class="tool-icon"><ToolIcon slug={slug} size={26} /></span>
+      <div class="tool-heading">
+        <h1>{tool.name}</h1>
+        <p class="tool-lede">{tool.description}</p>
+      </div>
+      <div class="tool-actions">
+        <button class="btn" type="button" data-copy-link>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" /><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" /></svg>
+          Copy link to this result
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <slot />
+
+  <details class="howto">
+    <summary>How it's calculated</summary>
+    <div class="howto-body">
+      <slot name="formula" />
+    </div>
+  </details>
+
+  {
+    hasExplainer && (
+      <article class="explainer">
+        <div class="flow-cols">
+          <slot name="explainer" />
+        </div>
+      </article>
+    )
+  }
+
+  <section class="refs" aria-labelledby="refs-title">
+    <h2 id="refs-title">References</h2>
+    <ul class="refs-list">
+      {
+        references.map((r) => (
+          <li>
+            {r.href ? <a href={r.href} rel="noopener">{r.title}</a> : r.title}
+            {r.note && <span class="ref-note"> — {r.note}</span>}
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <aside class="tool-foot">
+    <p>
+      <a href={url('contact/')}>Found a bug in this calculator?</a>{' '}
+      · <a href={url('contact/')}>Suggest a tool</a>
+    </p>
+    {
+      related.length > 0 && (
+        <p class="related">
+          More {category.label.toLowerCase()} tools:{' '}
+          {related.map((t, i) => (
+            <>
+              {i > 0 && ', '}
+              <a href={toolUrl(t.slug)}>{t.name}</a>
+            </>
+          ))}
+        </p>
+      )
+    }
+  </aside>
+</BaseLayout>
+
+<style>
+  .tool-hero {
+    position: relative;
+    margin: var(--s5) 0 var(--s5);
+    padding: var(--s4) var(--s5) var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    isolation: isolate;
+  }
+  /* Faint grid in the corner, tinted with the category colour. */
+  .tool-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image: linear-gradient(var(--rule) 1px, transparent 1px),
+      linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(ellipse 45% 120% at 100% 0%, #000, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse 45% 120% at 100% 0%, #000, transparent 70%);
+  }
+  .tool-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 2px;
+    background: var(--accent);
+  }
+  .crumbs {
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+    margin-bottom: var(--s4);
+  }
+  .crumbs a {
+    color: var(--ink-muted);
+    text-decoration: none;
+  }
+  .crumbs a:hover {
+    color: var(--ink);
+    text-decoration: underline;
+  }
+  .crumb-cat {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s1);
+    color: var(--cat) !important;
+    font-weight: 600;
+  }
+  .tool-head {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: var(--s2) var(--s4);
+    align-items: start;
+  }
+  .tool-actions {
+    grid-column: 1 / -1;
+  }
+  @media (min-width: 52rem) {
+    .tool-head {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+    }
+    .tool-actions {
+      grid-column: auto;
+      align-self: center;
+    }
+  }
+  .tool-heading h1 {
+    margin: 0;
+    font-size: clamp(1.6rem, 2vw + 1rem, 2.1rem);
+    font-weight: 750;
+    letter-spacing: -0.03em;
+  }
+  .tool-lede {
+    margin: var(--s1) 0 0;
+    color: var(--ink-muted);
+    font-size: var(--text-base);
+    max-width: var(--measure);
+  }
+  .tool-icon {
+    display: grid;
+    place-items: center;
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: var(--radius-lg);
+    color: var(--cat);
+    background: var(--cat-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cat) 18%, transparent);
+    flex: 0 0 auto;
+  }
+  .explainer {
+    margin-top: var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: var(--s2) var(--s5) var(--s3);
+  }
+  .explainer :global(h2:first-child) {
+    margin-top: var(--s4);
+  }
+  .refs h2 {
+    margin-top: var(--s4);
+  }
+  .refs-list {
+    padding-left: var(--s5);
+    margin-bottom: var(--s4);
+  }
+  .refs-list li {
+    break-inside: avoid;
+    margin-bottom: var(--s2);
+  }
+  @media (min-width: 60rem) {
+    .refs-list {
+      columns: 2;
+      column-gap: var(--s7);
+    }
+  }
+  .ref-note {
+    color: var(--ink-muted);
+  }
+  .refs {
+    margin-top: var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: var(--s2) var(--s5) var(--s3);
+  }
+  .tool-foot {
+    margin-top: var(--s5);
+    padding-top: var(--s4);
+    border-top: 1px solid var(--rule);
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+  }
+</style>

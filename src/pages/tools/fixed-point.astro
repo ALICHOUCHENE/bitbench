@@ -1,0 +1,372 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import Toggle from '../../components/Toggle.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { COMMON_FORMATS, ROUND_MODES, armName, formatInfo, qName, wordBits } from '../../lib/fixed-point';
+import { toolUrl } from '../../utils/paths';
+
+const rows = COMMON_FORMATS.map((f) => ({ ...f, info: formatInfo(f), name: qName(f), arm: armName(f), word: wordBits(f) }));
+
+const references = [
+  { title: 'Texas Instruments, TMS320C64x DSP Library Programmer’s Reference (SPRU565), Appendix A — Q format', note: 'TI Qm.n convention: m excludes the sign bit' },
+  { title: 'Arm, CMSIS-DSP documentation — q7_t, q15_t, q31_t data types', href: 'https://arm-software.github.io/CMSIS-DSP/latest/' },
+  { title: 'Arm, Cortex-M4 Technical Reference Manual — saturating instructions (SSAT, QADD, SMMUL)' },
+  { title: 'R. Yates, Fixed-Point Arithmetic: An Introduction (Digital Signal Labs, 2013)', href: 'http://www.digitalsignallabs.com/fp.pdf' },
+  { title: 'Wikipedia, Q (number format) — TI vs ARM notation', href: 'https://en.wikipedia.org/wiki/Q_(number_format)' },
+];
+---
+
+<ToolLayout slug="fixed-point" references={references}>
+  <div class="tool-grid">
+    <form id="fx-form" class="panel" novalidate>
+      <h2 class="panel-title">Format</h2>
+      <div class="fields fields--wide">
+        <SelectInput
+          name="preset"
+          label="Common format"
+          value="q15"
+          options={[...COMMON_FORMATS.map((f) => ({ value: f.id, label: `${f.label} — ${wordBits(f)}-bit ${f.signed ? 'signed' : 'unsigned'}` })), { value: 'custom', label: 'Custom' }]}
+        />
+      </div>
+      <div class="fields" style="margin-top: var(--s3)">
+        <NumberInput name="m" label="Integer bits m" value="0" inputmode="numeric" help="Excluding the sign bit" />
+        <NumberInput name="n" label="Fractional bits n" value="15" inputmode="numeric" />
+        <Segmented
+          name="sign"
+          label="Signedness"
+          options={[
+            { value: 's', label: 'Signed' },
+            { value: 'u', label: 'Unsigned' },
+          ]}
+        />
+      </div>
+
+      <h2 class="panel-title section-gap">Convert</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="dir"
+          label="Direction"
+          options={[
+            { value: 'tofixed', label: 'Real → fixed' },
+            { value: 'toreal', label: 'Fixed → real' },
+          ]}
+        />
+      </div>
+      <div class="fields" style="margin-top: var(--s3)">
+        <div data-when-dir="tofixed"><NumberInput name="x" label="Real value" value="0.5" inputmode="text" help="Exact decimal, e.g. 0.1 or -1.25e-3" /></div>
+        <div data-when-dir="tofixed">
+          <SelectInput name="round" label="Rounding" value="nearest" options={ROUND_MODES.map((r) => ({ value: r.value, label: r.label }))} />
+        </div>
+        <div data-when-dir="tofixed"><Toggle name="sat" label="Saturate on overflow" checked help="Off: wraps like a C integer cast" /></div>
+        <div data-when-dir="toreal" hidden>
+          <NumberInput name="raw" label="Stored integer" value="0x4000" inputmode="text" help="Decimal (-16384), hex (0xC000) or binary (0b…)" />
+        </div>
+      </div>
+    </form>
+
+    <section class="panel" aria-labelledby="fx-results">
+      <h2 class="panel-title" id="fx-results">Result <span id="fx-badge" class="badge badge--warn" hidden>saturated</span></h2>
+      <dl class="results">
+        <ResultRow label="Stored integer (hex, word width)" name="hex" primary />
+        <ResultRow label="Stored integer (decimal)" name="int" />
+        <ResultRow label="Binary (sign | integer . fraction)" name="bin" />
+        <ResultRow label="Real value represented" name="real" />
+        <ResultRow data-when-dir="tofixed" label="Quantization error (stored − entered)" name="err" />
+        <ResultRow data-when-dir="tofixed" label="Error in LSBs" name="errlsb" />
+      </dl>
+      <p class="note note--warn" id="fx-warn" hidden></p>
+
+      <h2 class="panel-title section-gap">Format properties</h2>
+      <dl class="results">
+        <ResultRow label="Format (TI notation)" name="name" />
+        <ResultRow label="Same format in ARM notation" name="arm" />
+        <ResultRow label="Word size" name="word" />
+        <ResultRow label="Minimum" name="min" />
+        <ResultRow label="Maximum" name="max" />
+        <ResultRow label="Resolution 2^−n" name="res" />
+        <ResultRow label="Dynamic range" name="dr" unit="dB" />
+      </dl>
+    </section>
+  </div>
+
+  <section class="section" aria-labelledby="table-title">
+    <h2 id="table-title">Common Q formats</h2>
+    <div class="table-wrap">
+      <table class="data" id="fx-table">
+        <thead>
+          <tr>
+            <th scope="col">Format</th>
+            <th scope="col">ARM notation</th>
+            <th scope="col" class="num">Word</th>
+            <th scope="col" class="num">Min</th>
+            <th scope="col" class="num">Max</th>
+            <th scope="col" class="num">Resolution</th>
+            <th scope="col">Typical C type / use</th>
+          </tr>
+        </thead>
+        <tbody>
+          {
+            rows.map((r) => (
+              <tr data-id={r.id}>
+                <td>
+                  <button type="button" class="linkish" data-preset={r.id}>
+                    {r.name}
+                  </button>
+                </td>
+                <td class="mono">{r.arm}</td>
+                <td class="num">{r.word}-bit {r.signed ? 's' : 'u'}</td>
+                <td class="num">{r.info.min}</td>
+                <td class="num">{r.info.max}</td>
+                <td class="num">{r.info.resolution}</td>
+                <td>{r.note}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="c-title">
+    <h2 id="c-title">C conversion helpers</h2>
+    <p class="help">
+      For the current format and rounding mode. The macros are fast but do not saturate: converting an out-of-range
+      float to an integer type is undefined behaviour in C, so prefer the inline functions when the input is not
+      guaranteed to be in range. Words up to 24 bits use <code>float</code>; wider words use <code>double</code> to keep
+      every bit.
+    </p>
+    <CodeOutput name="ccode" label="q_format.h" />
+  </section>
+
+  <Fragment slot="formula">
+    <pre>Notation: Qm.n (TI): m integer bits, n fractional bits, plus a sign bit if signed
+word size   W = m + n + 1 (signed)      W = m + n (unsigned, UQm.n)
+stored      q = round(x · 2^n)
+value       x = q · 2^−n
+range       signed: [−2^m, 2^m − 2^−n]     unsigned: [0, 2^m − 2^−n]
+resolution  2^−n
+overflow    saturate: q = clamp(q, qmin, qmax)
+            wrap:     q = q mod 2^W, read back as two's complement</pre>
+    <p>
+      The real input is kept as an exact decimal and multiplied by 2^n with BigInt arithmetic before rounding, so ties
+      such as −9830.5 are detected exactly and 64-bit words do not lose precision in a JavaScript double. "Floor" is
+      what an arithmetic right shift does to a two's complement value; "toward zero" is what a C cast from float does.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Qm.n notation: which convention?</h2>
+    <p>
+      There are two incompatible ways to write Q formats. This page uses the TI convention, where m counts only the
+      integer bits and the sign bit is extra: Q15 = Q0.15 is a signed 16-bit word holding values in [−1, 1). In the ARM
+      convention the sign bit is counted in m, so the same 16-bit format is called Q1.15, and the signed 32-bit type that
+      libraries call "Q16.16" (libfixmath's <code>fix16_t</code>) is Q15.16 here. The page always shows the word size and
+      the ARM name, so check those against your library before trusting a format name in a datasheet or a code comment.
+    </p>
+    <h3>Choosing m and n</h3>
+    <p>
+      Every bit is either range or resolution. Pick m from the largest magnitude the variable can ever take, including
+      intermediate results, then give everything left to n. A filter coefficient up to ±1.9 needs Q1.14 rather than Q15;
+      a temperature from −40 to 125 °C with 0.01 °C resolution needs m = 7 and n ≥ 7, so Q8.7 or a 32-bit format. The
+      dynamic range shown above (about 6.02 dB per bit) is the ratio between the largest value and the resolution.
+    </p>
+    <h3>Rounding and saturation</h3>
+    <p>
+      Truncating by shifting right rounds toward −∞ and adds a bias of half an LSB, which accumulates in long filters and
+      integrators; round to nearest by adding half an LSB before the shift, as the multiply helper does. Ties-to-even
+      removes the remaining bias when values often land exactly halfway, for example after halving. Overflow in two's
+      complement wraps: 1.0 in Q15 becomes −1.0, which in an audio path is a full-scale click and in a control loop can
+      flip the sign of the actuator command. Saturating arithmetic clamps instead; Cortex-M4/M7 provide
+      <code>SSAT</code>, <code>QADD</code> and <code>QDADD</code> instructions, and CMSIS-DSP saturates in most q15/q31
+      functions.
+    </p>
+    <h3>Multiplying Q numbers</h3>
+    <p>
+      Multiplying Qa.b by Qc.d gives Q(a+c+1).(b+d) in twice the width (one extra integer bit for the signed case), so a
+      Q15 × Q15 product is a Q1.30 value in 32 bits. Shift right by 15 to return to Q15. The only product that overflows is
+      −1 × −1 = +1, which is why <code>q15_mul</code> saturates. Keep accumulators wider than the data (Q31 or 64-bit for
+      Q15 data) and saturate once at the end. If your MCU has an FPU, the
+      <a href={toolUrl('float')}>IEEE-754 float converter</a> shows what precision you would get with float instead.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, setError, setResult, show } from '../../scripts/tool-client';
+  import { decToSci, decToString, decRatioSci } from '../../lib/float754';
+  import {
+    COMMON_FORMATS,
+    armName,
+    formatInfo,
+    generateC,
+    parseRaw,
+    parseReal,
+    patternBinary,
+    patternHex,
+    qName,
+    rawToDec,
+    realToFixed,
+    validateFormat,
+    wordBits,
+    type QFormat,
+    type RoundMode,
+  } from '../../lib/fixed-point';
+
+  const form = document.getElementById('fx-form') as HTMLFormElement;
+  const field = (name: string) => form.elements.namedItem(name) as HTMLInputElement | HTMLSelectElement;
+  const preset = field('preset') as HTMLSelectElement;
+  const RESULTS = ['hex', 'int', 'bin', 'real', 'err', 'errlsb', 'name', 'arm', 'word', 'min', 'max', 'res', 'dr', 'ccode'];
+
+  function setSign(s: 's' | 'u') {
+    (form.querySelector(`input[name="sign"][value="${s}"]`) as HTMLInputElement).checked = true;
+  }
+  function fillFromPreset(id: string) {
+    const f = COMMON_FORMATS.find((x) => x.id === id);
+    if (!f) return;
+    field('m').value = String(f.m);
+    field('n').value = String(f.n);
+    setSign(f.signed ? 's' : 'u');
+  }
+  preset.addEventListener('change', () => fillFromPreset(preset.value));
+  for (const name of ['m', 'n']) field(name).addEventListener('input', () => (preset.value = 'custom'));
+  form.querySelectorAll('input[name="sign"]').forEach((r) => r.addEventListener('change', () => (preset.value = 'custom')));
+
+  /** "2e-1" → "0.2" for ordinary magnitudes; tiny/huge values stay in e-notation. */
+  function pretty(sci: string | null): string {
+    if (sci === null) return '—';
+    const x = Number(sci);
+    return Number.isFinite(x) && x !== 0 && Math.abs(x) >= 1e-4 && Math.abs(x) < 1e6 ? String(Number(x.toPrecision(4))) : sci;
+  }
+
+  function readInt(name: string, raw: string, label: string): number | null {
+    const s = raw.trim();
+    if (!/^\d+$/.test(s)) return setError(name, `${label} must be a whole number ≥ 0.`), null;
+    setError(name, null);
+    return Number(s);
+  }
+
+  const run = bindForm('fx-form', (v) => {
+    document.querySelectorAll<HTMLElement>('[data-when-dir]').forEach((x) => (x.hidden = x.dataset.whenDir !== v.dir));
+    show('fx-badge', false);
+    show('fx-warn', false);
+
+    if (v.preset !== 'custom') {
+      const p = COMMON_FORMATS.find((x) => x.id === v.preset);
+      if (p) {
+        fillFromPreset(p.id);
+        v.m = String(p.m);
+        v.n = String(p.n);
+        v.sign = p.signed ? 's' : 'u';
+      }
+    }
+    const m = readInt('m', v.m, 'Integer bits m');
+    const n = readInt('n', v.n, 'Fractional bits n');
+    if (m === null || n === null) return clearResults(...RESULTS);
+    const f: QFormat = { m, n, signed: v.sign === 's' };
+    const err = validateFormat(f);
+    if (err) {
+      setError(m + n > 0 ? 'n' : 'm', err);
+      return clearResults(...RESULTS);
+    }
+
+    document.querySelectorAll<HTMLTableRowElement>('#fx-table tbody tr').forEach((tr) => {
+      const p = COMMON_FORMATS.find((x) => x.id === tr.dataset.id)!;
+      tr.classList.toggle('is-current', p.m === f.m && p.n === f.n && p.signed === f.signed);
+    });
+
+    const info = formatInfo(f);
+    const w = wordBits(f);
+    setResult('name', qName(f));
+    setResult('arm', armName(f));
+    setResult('word', `${w} bits (${f.signed ? '1 sign + ' : ''}${f.m} integer + ${f.n} fraction)`);
+    setResult('min', info.min);
+    setResult('max', info.max);
+    setResult('res', n <= 20 ? info.resolution : `2^−${n} ≈ ${decToSci(rawToDec(1n, n), 8)}`);
+    setResult('dr', (20 * Math.log10(2) * (f.m + f.n)).toFixed(1));
+
+    const mode = v.round as RoundMode;
+    setResult('ccode', generateC(f, v.dir === 'tofixed' ? mode : 'nearest'));
+
+    let raw: bigint | null = null;
+    if (v.dir === 'tofixed') {
+      setError('raw', null);
+      const x = parseReal(v.x);
+      if (!x) {
+        setError('x', 'Enter a finite decimal number, e.g. 0.5 or -1.25e-3.');
+        return clearResults('hex', 'int', 'bin', 'real', 'err', 'errlsb');
+      }
+      setError('x', null);
+      const r = realToFixed(x, f, mode, v.sat === '1');
+      raw = r.raw;
+      setResult('err', r.error.n === 0n ? '0 (exact)' : `${decToString(r.error)}`);
+      setResult('errlsb', r.error.n === 0n ? '0' : pretty(decRatioSci(r.error, rawToDec(1n, n), 4)));
+      const warn = document.getElementById('fx-warn')!;
+      if (r.status === 'saturated-high' || r.status === 'saturated-low') {
+        const badge = document.getElementById('fx-badge')!;
+        badge.textContent = 'saturated';
+        show('fx-badge', true);
+        warn.textContent = `${v.x.trim()} is ${r.status === 'saturated-high' ? 'above the maximum' : 'below the minimum'} of ${qName(f)} (would be ${r.unclamped}); clamped to ${r.status === 'saturated-high' ? info.max : info.min}.`;
+        show('fx-warn', true);
+      } else if (r.status === 'wrapped') {
+        const badge = document.getElementById('fx-badge')!;
+        badge.textContent = 'overflow — wrapped';
+        show('fx-badge', true);
+        warn.textContent = `Out of range: the rounded integer ${r.unclamped} does not fit in ${w} bits and wraps to ${r.raw} (${decToString(r.value)}). Enable saturation, or choose more integer bits.`;
+        show('fx-warn', true);
+      }
+    } else {
+      setError('x', null);
+      const p = parseRaw(v.raw, f);
+      if (!p.ok) {
+        setError('raw', p.error);
+        return clearResults('hex', 'int', 'bin', 'real', 'err', 'errlsb');
+      }
+      setError('raw', null);
+      raw = p.raw;
+      clearResults('err', 'errlsb');
+    }
+
+    setResult('hex', patternHex(raw, f));
+    setResult('int', raw.toString());
+    const b = patternBinary(raw, f);
+    const group = (s: string) => s.replace(/\B(?=(\d{4})+(?!\d))/g, ' ');
+    const frac = b.frac.replace(/(\d{4})(?=\d)/g, '$1\u2009');
+    setResult('bin', [b.sign && `${b.sign} |`, b.int && group(b.int), f.n > 0 && `.${frac}`].filter(Boolean).join(' '));
+    setResult('real', decToString(rawToDec(raw, n)));
+  });
+
+  document.getElementById('fx-table')!.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-preset]');
+    if (!btn) return;
+    preset.value = btn.dataset.preset!;
+    fillFromPreset(preset.value);
+    run();
+    preset.focus();
+  });
+</script>
+
+<style>
+  .section-gap {
+    margin-top: var(--s5);
+  }
+  #fx-results .badge {
+    margin-left: var(--s2);
+    vertical-align: middle;
+  }
+  .linkish {
+    font: inherit;
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--accent);
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 0.18em;
+  }
+</style>

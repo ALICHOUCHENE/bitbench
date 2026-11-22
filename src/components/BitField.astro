@@ -1,0 +1,152 @@
+---
+// Clickable bit-field visualizer: one toggle button per bit, MSB first, grouped by nibble with
+// wider gaps at byte boundaries, optional field brackets above and the nibble's hex digit below.
+// Rendered at build time from bitFieldMarkup() and re-rendered / updated by the page script with
+// the same function, so the markup never diverges.
+import { bitFieldMarkup, type FieldLabel } from '../lib/binary';
+
+interface Props {
+  id: string;
+  width: number;
+  bits?: bigint;
+  signed?: boolean;
+  fields?: FieldLabel[];
+  /** Bits per row at build time (the client switches to 8 on narrow screens). */
+  perRow?: number;
+  label?: string;
+}
+
+const { id, width, bits = 0n, signed = false, fields = [], perRow = 16, label = 'Bits' } = Astro.props;
+const html = bitFieldMarkup(width, perRow, fields, signed, bits);
+---
+
+<div class="bitfield" id={id} role="group" aria-label={label} data-per-row={perRow}>
+  <Fragment set:html={html} />
+</div>
+
+<style is:global>
+  .bitfield {
+    --bf-cell: minmax(1.45rem, 2.5rem);
+    --bf-nib-gap: 0.3rem;
+    --bf-byte-gap: 0.95rem;
+    display: grid;
+    gap: var(--s3);
+    min-width: 0;
+  }
+  .bf-row {
+    display: grid;
+    grid-template-rows: auto auto auto auto;
+    justify-content: start;
+  }
+  .bf-label {
+    grid-row: 1;
+    min-width: 0;
+    padding: 0 1px;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-weight: 650;
+    line-height: 1.2;
+    text-align: center;
+    color: var(--ink);
+  }
+  .bf-label span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The bracket: a hairline over the field's bits with short ticks at each end. */
+  .bf-label::after {
+    content: '';
+    display: block;
+    height: 0.4rem;
+    margin: 2px 0 4px;
+    border: 1px solid currentColor;
+    border-bottom: 0;
+  }
+  .bf-label--alt {
+    color: var(--ink-muted);
+  }
+  .bf-cont-l::after {
+    border-left: 0;
+  }
+  .bf-cont-r::after {
+    border-right: 0;
+  }
+  .bf-num {
+    grid-row: 2;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+    text-align: center;
+    color: var(--ink-muted);
+  }
+  .bf-num--sign {
+    color: var(--ink);
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .bf-bit {
+    grid-row: 3;
+    min-width: 0;
+    height: 2.5rem;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ink-muted);
+    background: var(--bg);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: pan-y;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 120ms linear,
+      border-color 120ms linear,
+      color 120ms linear,
+      box-shadow 160ms ease-out,
+      transform 90ms ease-out;
+  }
+  .bf-bit:active {
+    transform: scale(0.92);
+  }
+  .bf-bit:hover {
+    border-color: var(--ink-muted);
+    color: var(--ink);
+  }
+  .bf-bit[aria-pressed='true'] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    box-shadow:
+      0 0 0 3px var(--accent-soft),
+      inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  .bf-bit:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+    position: relative;
+    z-index: 1;
+  }
+  .bf-hex {
+    grid-row: 4;
+    margin-top: 4px;
+    padding-top: 2px;
+    border-top: 1px solid var(--rule);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: center;
+    color: var(--ink);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bf-bit {
+      transition: none;
+    }
+  }
+</style>

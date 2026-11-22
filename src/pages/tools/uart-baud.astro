@@ -1,0 +1,382 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { STANDARD_BAUDS } from '../../lib/uart-baud';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'ST RM0090 — STM32F405/407/427/429 reference manual',
+    note: '§30.3.4 fractional baud rate generation (USARTDIV, OVER8, worked examples), §30.3.5 receiver tolerance',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0090-stm32f405415-stm32f407417-stm32f427437-and-stm32f429439-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  {
+    title: 'ST RM0351 — STM32L47x/L48x/L49x/L4Ax reference manual',
+    note: 'USART baud rate generation: USARTDIV = 2·f_ck/baud and BRR[2:0] = USARTDIV[3:0] >> 1 for OVER8',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0351-stm32l47xxx-stm32l48xxx-stm32l49xxx-and-stm32l4axxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  {
+    title: 'Microchip DS40002061A — ATmega48A/PA/88A/PA/168A/PA/328/P datasheet',
+    note: '§20.3.1 Table 20-1 UBRR equations, §20.8.3 Tables 20-2/20-3 receiver error, Tables 20-4…20-7 UBRR examples',
+    href: 'https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061A.pdf',
+  },
+  { title: 'Maxim/Analog Devices Tutorial 2141 — Determining clock accuracy requirements for UART communications' },
+];
+
+const freqUnits = [
+  { value: 'MHz', label: 'MHz' },
+  { value: 'kHz', label: 'kHz' },
+  { value: 'Hz', label: 'Hz' },
+];
+const baudOptions = [
+  ...STANDARD_BAUDS.map((b) => ({ value: String(b), label: b.toLocaleString('en-US') })),
+  { value: 'custom', label: 'Custom…' },
+];
+---
+
+<ToolLayout slug="uart-baud" references={references}>
+  <div class="tool-grid">
+    <form id="uart-form" class="panel" novalidate>
+      <h2 class="panel-title">Inputs</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="mcu"
+          label="Peripheral"
+          options={[
+            { value: 'stm32', label: 'STM32 USART' },
+            { value: 'avr', label: 'AVR USART' },
+          ]}
+        />
+      </div>
+      <div class="fields" style="margin-top: var(--s4)">
+        <NumberInput name="clk" label="USART clock" value="84" units={freqUnits} unitValue="MHz" help="STM32: PCLKx feeding the USART. AVR: f_osc" />
+        <SelectInput name="baud" label="Baud rate" value="115200" options={baudOptions} />
+        <div data-custom hidden><NumberInput name="custom" label="Custom baud rate" value="250000" unit="bit/s" /></div>
+      </div>
+    </form>
+
+    <section class="panel" aria-labelledby="uart-results">
+      <h2 class="panel-title" id="uart-results">Results</h2>
+      <div data-mcu="stm32">
+        <h3 class="sub">Oversampling by 16 (OVER8 = 0) <span class="badge" id="b-s16"></span></h3>
+        <dl class="results">
+          <ResultRow label="USART_BRR" name="s16brr" primary />
+          <ResultRow label="DIV_Mantissa / DIV_Fraction" name="s16mf" />
+          <ResultRow label="USARTDIV" name="s16div" />
+          <ResultRow label="Actual baud rate" name="s16act" unit="bit/s" />
+          <ResultRow label="Error" name="s16err" unit="%" />
+        </dl>
+        <h3 class="sub">Oversampling by 8 (OVER8 = 1) <span class="badge" id="b-s8"></span></h3>
+        <dl class="results">
+          <ResultRow label="USART_BRR" name="s8brr" primary />
+          <ResultRow label="DIV_Mantissa / DIV_Fraction" name="s8mf" />
+          <ResultRow label="USARTDIV" name="s8div" />
+          <ResultRow label="Actual baud rate" name="s8act" unit="bit/s" />
+          <ResultRow label="Error" name="s8err" unit="%" />
+        </dl>
+        <p class="note note--warn" id="hal-note" hidden></p>
+      </div>
+      <div data-mcu="avr" hidden>
+        <h3 class="sub">Normal speed (U2X = 0) <span class="badge" id="b-a0"></span></h3>
+        <dl class="results">
+          <ResultRow label="UBRR" name="a0ubrr" primary />
+          <ResultRow label="Actual baud rate" name="a0act" unit="bit/s" />
+          <ResultRow label="Error" name="a0err" unit="%" />
+        </dl>
+        <h3 class="sub">Double speed (U2X = 1) <span class="badge" id="b-a1"></span></h3>
+        <dl class="results">
+          <ResultRow label="UBRR" name="a1ubrr" primary />
+          <ResultRow label="Actual baud rate" name="a1act" unit="bit/s" />
+          <ResultRow label="Error" name="a1err" unit="%" />
+        </dl>
+      </div>
+      <CodeOutput name="code" label="C register setup" />
+    </section>
+  </div>
+
+  <section class="section" aria-labelledby="uart-table">
+    <div class="sec-head">
+      <h2 id="uart-table">Standard baud rates at this clock</h2>
+      <button class="copy-btn" type="button" id="copy-table" data-copy-text="">Copy table</button>
+    </div>
+    <p class="help">Errors above ±2 % are flagged. A dash means the rate is outside the divider's range.</p>
+    <div class="table-wrap">
+      <table class="data">
+        <thead id="uart-head"></thead>
+        <tbody id="uart-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <Fragment slot="formula">
+    <pre>STM32 (RM0090 §30.3.4, RM0351)
+  baud = f_ck / (8 · (2 − OVER8) · USARTDIV)
+  OVER16: D = round(f_ck / baud)        BRR = D            (mantissa = D >> 4, fraction = D &amp; 0xF)
+  OVER8:  D = round(f_ck / baud)        BRR = ((D >> 3) &lt;&lt; 4) | (D &amp; 7)   BRR[3] = 0
+          (RM0351 form: USARTDIV = 2·f_ck/baud, BRR[2:0] = USARTDIV[3:0] >> 1)
+  actual = f_ck / D            D ≥ 16 (OVER16) or ≥ 8 (OVER8): baud ≤ f_ck/16 or f_ck/8
+
+AVR (ATmega328P Table 20-1)
+  U2X = 0: UBRR = f_osc / (16 · baud) − 1      actual = f_osc / (16 · (UBRR + 1))
+  U2X = 1: UBRR = f_osc / (8 · baud) − 1       actual = f_osc / (8 · (UBRR + 1))
+  UBRR is 12 bits (0 … 4095)
+
+error = actual / target − 1</pre>
+    <p>
+      The divider is rounded to whichever neighbouring integer gives the smaller baud-rate error. That matches the
+      datasheet example tables (16 MHz / 9600 → UBRR 103, 0.2 %) and RM0090's worked examples, including the case
+      where a rounded fraction of 16 carries into the mantissa (USARTDIV 50.99 → BRR 0x330).
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>How much baud-rate error can a UART take?</h2>
+    <p>
+      An asynchronous receiver re-synchronises only on the falling edge of the start bit, then samples every following
+      bit at the time it expects the middle of that bit to be. If the two ends run at slightly different rates, the
+      sampling point drifts by the rate difference on every bit. By the stop bit of an 8N1 frame (9.5 bit times after
+      the start edge) the drift must stay well under half a bit, which caps the <em>total</em> mismatch between
+      transmitter and receiver at roughly ±5 %. Start-edge detection uncertainty (1/16 of a bit with 16× oversampling)
+      and the three-sample majority window eat into that, which is why the ATmega328P datasheet (Table 20-2) gives a
+      maximum total error of +4.58 / −4.54 % for 8 data bits at U2X = 0, and only about ±3.9 % at U2X = 1.
+    </p>
+    <h3>Why 2 % is the usual limit</h3>
+    <p>
+      That ±4.5 % budget is shared by both ends, and you rarely control the other end's clock. Splitting it evenly gives
+      about ±2 % for each side, and that is exactly the "recommended max receiver error" Microchip lists for 7 and 8
+      data bits. STM32 reference manuals give a similar figure: RM0090 §30.3.5 quotes a receiver tolerance of 3.75 % for
+      8-bit data with 16× oversampling, and that must cover the transmitter error too. Adding a parity bit or a 9th data
+      bit tightens the limit (±1.5 % recommended at D = 9 or 10), and so does RS-485 or optocoupler edge distortion. The
+      error shown here is only the divider quantisation; add your oscillator tolerance on top: a crystal adds about
+      0.005 %, but an internal RC oscillator can be off by 1–10 % before calibration.
+    </p>
+    <h3>Picking clocks and oversampling</h3>
+    <p>
+      "Baud-rate crystals" such as 7.3728, 11.0592, 14.7456 and 18.432 MHz are multiples of 1.8432 MHz = 16 × 115 200,
+      so the classic rates from 300 to 115 200 baud divide exactly. With a 16 MHz AVR, 115 200 baud is −3.5 % at U2X = 0 — the classic reason
+      the Arduino core switches U2X on — and +2.1 % at U2X = 1, while 250 000, 500 000 and 1 000 000 baud are exact. On STM32 the
+      4-bit fractional divider keeps errors well under 1 % up to several hundred kbaud at tens of MHz. Use OVER8 only when you need a baud
+      rate above f_ck/16: it halves the fraction resolution and reduces the receiver's tolerance.
+    </p>
+    <h3>STM32 pitfalls</h3>
+    <p>
+      The USART clock is the APB clock of the bus the peripheral sits on (USART1/USART6 on APB2, the others on APB1 on
+      F4), or a kernel clock selected in RCC on newer families — not the timer clock, which may be doubled. On the newer
+      USART (F0, F3, F7, L4, G0, G4, H7), STM32Cube HAL computes the OVER8 value as round(2·f/baud) and then drops bit 0,
+      which truncates; the note above appears when that gives a different register value than the nearest divider. Families
+      with a USART prescaler (PRESC) divide f_ck first. For the timers on the same chip, see the
+      <a href={toolUrl('mcu-timer')}>STM32 timer calculator</a>; for the other serial buses, the
+      <a href={toolUrl('spi-timing')}>SPI clock</a>, <a href={toolUrl('i2c-timing')}>I²C timing</a> and
+      <a href={toolUrl('can-timing')}>CAN bit timing</a> calculators.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, setError, setResult } from '../../scripts/tool-client';
+  import { applyUnit, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import { avrUbrr, BAUD_ERROR_LIMIT, hex, STANDARD_BAUDS, stm32Brr, stm32HalOver8 } from '../../lib/uart-baud';
+
+  const FREQ: Record<string, number> = { Hz: 1, kHz: 1e3, MHz: 1e6 };
+  const NAMES = ['s16brr', 's16mf', 's16div', 's16act', 's16err', 's8brr', 's8mf', 's8div', 's8act', 's8err', 'a0ubrr', 'a0act', 'a0err', 'a1ubrr', 'a1act', 'a1err', 'code'];
+  const halNote = document.getElementById('hal-note')!;
+  const head = document.getElementById('uart-head')!;
+  const body = document.getElementById('uart-rows')!;
+  const copyTable = document.getElementById('copy-table')!;
+
+  const pct = (e: number) => {
+    if (e === 0) return '0';
+    const x = e * 100;
+    return (x > 0 ? '+' : '') + (Math.abs(x) < 0.01 ? formatNumber(x, 2) : x.toFixed(2));
+  };
+  const level = (e: number) => (Math.abs(e) <= BAUD_ERROR_LIMIT ? 'ok' : Math.abs(e) <= 0.045 ? 'warn' : 'error');
+
+  function badge(id: string, error: number | null) {
+    const el = document.getElementById(id)!;
+    if (error === null) {
+      el.className = 'badge badge--error';
+      el.textContent = 'out of range';
+      return;
+    }
+    const l = level(error);
+    el.className = `badge badge--${l}`;
+    el.textContent = l === 'ok' ? (error === 0 ? 'exact' : '≤ 2 %') : l === 'warn' ? '> 2 % — marginal' : '> 4.5 % — will fail';
+  }
+
+  function cell(error: number | null, value: string): string {
+    if (error === null) return '<td class="num">—</td><td class="num">—</td>';
+    const l = level(error);
+    const flag = l === 'ok' ? '' : ` <span class="badge badge--${l}">${l === 'warn' ? '!' : '✕'}</span>`;
+    return `<td class="num">${value}</td><td class="num">${pct(error)}${flag}</td>`;
+  }
+
+  function hideBadges() {
+    for (const id of ['b-s16', 'b-s8', 'b-a0', 'b-a1']) {
+      const el = document.getElementById(id)!;
+      el.className = 'badge';
+      el.textContent = '';
+    }
+  }
+
+  bindForm('uart-form', (v) => {
+    const mcu = v.mcu === 'avr' ? 'avr' : 'stm32';
+    document.querySelectorAll<HTMLElement>('[data-mcu]').forEach((el) => (el.hidden = el.dataset.mcu !== mcu));
+    document.querySelector<HTMLElement>('[data-custom]')!.hidden = v.baud !== 'custom';
+
+    const clkRaw = parseNumber(v.clk);
+    let clk: number | null = null;
+    if (clkRaw === null) setError('clk', 'Clock must be a number, e.g. 84.');
+    else if (clkRaw <= 0) setError('clk', 'Clock must be greater than zero.');
+    else {
+      setError('clk', null);
+      clk = applyUnit(v.clk, clkRaw, FREQ[v.clkUnit] ?? 1);
+    }
+
+    let baud: number | null = null;
+    if (v.baud === 'custom') {
+      const b = parseNumber(v.custom);
+      if (b === null) setError('custom', 'Baud rate must be a number, e.g. 250000 or 250k.');
+      else if (b <= 0) setError('custom', 'Baud rate must be greater than zero.');
+      else {
+        setError('custom', null);
+        baud = b;
+      }
+    } else {
+      setError('custom', null);
+      baud = Number(v.baud);
+    }
+
+    if (clk === null) {
+      clearResults(...NAMES);
+      hideBadges();
+      halNote.hidden = true;
+      head.innerHTML = body.innerHTML = '';
+      return;
+    }
+
+    // ---- Table of standard rates (needs only the clock) ----
+    const bauds = [...STANDARD_BAUDS];
+    if (baud !== null && !bauds.includes(baud)) bauds.push(baud);
+    bauds.sort((a, b) => a - b);
+    const tsv: string[] = [];
+    if (mcu === 'stm32') {
+      head.innerHTML = '<tr><th class="num">Baud</th><th class="num">BRR (OVER16)</th><th class="num">Error</th><th class="num">BRR (OVER8)</th><th class="num">Error</th></tr>';
+      tsv.push('Baud\tBRR OVER16\tError %\tBRR OVER8\tError %');
+    } else {
+      head.innerHTML = '<tr><th class="num">Baud</th><th class="num">UBRR (U2X=0)</th><th class="num">Error</th><th class="num">UBRR (U2X=1)</th><th class="num">Error</th></tr>';
+      tsv.push('Baud\tUBRR U2X=0\tError %\tUBRR U2X=1\tError %');
+    }
+    body.innerHTML = bauds
+      .map((b) => {
+        const a = mcu === 'stm32' ? stm32Brr(clk!, b, 16) : avrUbrr(clk!, b, false);
+        const c = mcu === 'stm32' ? stm32Brr(clk!, b, 8) : avrUbrr(clk!, b, true);
+        const fmt = (r: typeof a) => (r === null ? '—' : 'brr' in r ? hex(r.brr, 3) : String(r.ubrr));
+        tsv.push(`${b}\t${fmt(a)}\t${a ? pct(a.error) : '—'}\t${fmt(c)}\t${c ? pct(c.error) : '—'}`);
+        return `<tr${b === baud ? ' class="is-current"' : ''}><td class="num">${b.toLocaleString('en-US')}</td>${cell(a?.error ?? null, fmt(a))}${cell(c?.error ?? null, fmt(c))}</tr>`;
+      })
+      .join('');
+    copyTable.dataset.copyText = tsv.join('\n');
+
+    if (baud === null) {
+      clearResults(...NAMES);
+      hideBadges();
+      halNote.hidden = true;
+      return;
+    }
+
+    const clkText = formatSI(clk, 'Hz', 8);
+    if (mcu === 'stm32') {
+      const r16 = stm32Brr(clk, baud, 16);
+      const r8 = stm32Brr(clk, baud, 8);
+      for (const [p, r] of [
+        ['s16', r16],
+        ['s8', r8],
+      ] as const) {
+        badge(`b-${p}`, r ? r.error : null);
+        if (!r) {
+          clearResults(`${p}brr`, `${p}mf`, `${p}div`, `${p}act`, `${p}err`);
+          continue;
+        }
+        setResult(`${p}brr`, hex(r.brr, 3));
+        setResult(`${p}mf`, `${r.mantissa} (${hex(r.mantissa)}) / ${r.fraction}`);
+        setResult(`${p}div`, formatNumber(r.usartdiv, 8));
+        setResult(`${p}act`, formatNumber(r.actual, 8));
+        setResult(`${p}err`, pct(r.error));
+      }
+      const hal = stm32HalOver8(clk, baud);
+      if (hal && r8 && hal.brr !== r8.brr) {
+        halNote.textContent = `STM32Cube HAL on the newer USART (L4, G0, G4, H7…) truncates the OVER8 fraction and writes BRR = ${hex(hal.brr, 3)} (error ${pct(hal.error)} %). Write ${hex(r8.brr, 3)} to BRR directly for the nearest rate.`;
+        halNote.hidden = false;
+      } else halNote.hidden = true;
+
+      const best = r16 && (!r8 || Math.abs(r16.error) <= Math.abs(r8.error)) ? r16 : r8;
+      if (!best) setResult('code', `/* ${baud} baud is out of range for a ${clkText} USART clock (max ${formatNumber(clk / 8, 6)} with OVER8). */`);
+      else
+        setResult(
+          'code',
+          `/* ${baud} baud @ ${clkText}, ${best.oversampling === 16 ? 'OVER8 = 0' : 'OVER8 = 1'}: actual ${formatNumber(best.actual, 8)} (${pct(best.error)} %) */
+${best.oversampling === 8 ? 'USARTx->CR1 |= USART_CR1_OVER8;   /* set before enabling UE */\n' : ''}USARTx->BRR = ${hex(best.brr, 3)};   /* mantissa ${best.mantissa}, fraction ${best.fraction} */
+
+/* STM32 HAL */
+huart.Init.BaudRate = ${baud};
+huart.Init.OverSampling = ${best.oversampling === 16 ? 'UART_OVERSAMPLING_16' : 'UART_OVERSAMPLING_8'};`,
+        );
+    } else {
+      const a0 = avrUbrr(clk, baud, false);
+      const a1 = avrUbrr(clk, baud, true);
+      for (const [p, r] of [
+        ['a0', a0],
+        ['a1', a1],
+      ] as const) {
+        badge(`b-${p}`, r ? r.error : null);
+        if (!r) {
+          clearResults(`${p}ubrr`, `${p}act`, `${p}err`);
+          continue;
+        }
+        setResult(`${p}ubrr`, `${r.ubrr} (${hex(r.ubrr, 3)})`);
+        setResult(`${p}act`, formatNumber(r.actual, 8));
+        setResult(`${p}err`, pct(r.error));
+      }
+      const best = a0 && (!a1 || Math.abs(a0.error) <= Math.abs(a1.error)) ? a0 : a1;
+      if (!best) setResult('code', `/* ${baud} baud is out of range for f_osc = ${clkText} (UBRR is 12 bits). */`);
+      else
+        setResult(
+          'code',
+          `/* ${baud} baud @ ${clkText}, U2X0 = ${best.u2x ? 1 : 0}: actual ${formatNumber(best.actual, 8)} (${pct(best.error)} %) */
+UBRR0H = ${best.ubrr >> 8};
+UBRR0L = ${best.ubrr & 0xff};
+${best.u2x ? 'UCSR0A |= (1 << U2X0);' : 'UCSR0A &= ~(1 << U2X0);'}
+
+/* or let avr-libc compute it at compile time */
+#define F_CPU ${Math.round(clk)}UL
+#define BAUD ${Math.round(baud)}
+#include <util/setbaud.h>   /* UBRRH_VALUE, UBRRL_VALUE, USE_2X */`,
+        );
+    }
+  });
+</script>
+
+<style>
+  .sub {
+    font-size: var(--text-sm);
+    font-weight: 650;
+    color: var(--ink-muted);
+    margin: var(--s4) 0 var(--s1);
+  }
+  [data-mcu] > .sub:first-child {
+    margin-top: 0;
+  }
+  .sub .badge:empty {
+    display: none;
+  }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s3);
+  }
+</style>

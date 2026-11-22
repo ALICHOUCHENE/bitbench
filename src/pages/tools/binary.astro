@@ -1,0 +1,807 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import Segmented from '../../components/Segmented.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import Toggle from '../../components/Toggle.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import BitField from '../../components/BitField.astro';
+import { cLiteral, formatIn, rangeOf, type Base } from '../../lib/binary';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'ISO/IEC 9899:2011 (C11) draft N1570 — §6.5.7 Bitwise shift operators, §6.3.1.1 Integer promotions',
+    href: 'https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf',
+  },
+  {
+    title: 'GCC manual — Integers implementation-defined behavior (right shift of negative values)',
+    href: 'https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html',
+  },
+  {
+    title: 'Arm CMSIS-Core — register field definitions (_Pos / _Msk convention)',
+    href: 'https://arm-software.github.io/CMSIS_6/latest/Core/index.html',
+  },
+  { title: 'H. S. Warren, Hacker’s Delight, 2nd ed., ch. 2 — Basics (two’s complement, rotates, masks)' },
+];
+
+const DEFAULT_BITS = 0xa5n;
+const DEFAULT_WIDTH = 32;
+const reps: { base: Base; label: string; prefix: string }[] = [
+  { base: 'dec', label: 'Decimal', prefix: '' },
+  { base: 'hex', label: 'Hex', prefix: '0x' },
+  { base: 'oct', label: 'Octal', prefix: '0o' },
+  { base: 'bin', label: 'Binary', prefix: '0b' },
+];
+const ops = [
+  { id: 'and', expr: 'A & B' },
+  { id: 'or', expr: 'A | B' },
+  { id: 'xor', expr: 'A ^ B' },
+  { id: 'not', expr: '~A' },
+  { id: 'neg', expr: '−A (~A + 1)' },
+  { id: 'shl', expr: 'A << n' },
+  { id: 'shr', expr: 'A >> n logical' },
+  { id: 'sar', expr: 'A >> n arithmetic' },
+  { id: 'rol', expr: 'rotl(A, n)' },
+  { id: 'ror', expr: 'rotr(A, n)' },
+];
+const range = rangeOf(DEFAULT_WIDTH, false);
+---
+
+<ToolLayout slug="binary" references={references}>
+  <form id="bin-form" novalidate>
+    <input type="hidden" name="v" value="A5" />
+
+    <section class="panel" aria-labelledby="val-title">
+      <h2 class="panel-title" id="val-title">Value A</h2>
+
+      <div class="bin-controls">
+        <Segmented
+          name="w"
+          label="Width"
+          value={String(DEFAULT_WIDTH)}
+          options={[
+            { value: '8', label: '8' },
+            { value: '16', label: '16' },
+            { value: '32', label: '32' },
+            { value: '64', label: '64' },
+          ]}
+        />
+        <Segmented
+          name="s"
+          label="Interpretation"
+          options={[
+            { value: 'unsigned', label: 'Unsigned' },
+            { value: 'signed', label: 'Signed (two’s compl.)' },
+          ]}
+        />
+        <p class="bin-range help">Range <span class="mono" data-result="range">{`${range.min} … ${range.max}`}</span></p>
+      </div>
+
+      <div class="reps">
+        {
+          reps.map((r) => (
+            <div class={`field rep rep--${r.base}`}>
+              <div class="rep-head">
+                <label for={`f-${r.base}`}>{r.label}</label>
+                <button
+                  class="copy-btn"
+                  type="button"
+                  data-rep-copy={r.base}
+                  data-copy-text={cLiteral(r.base, DEFAULT_BITS, DEFAULT_WIDTH, false)}
+                  aria-label={`Copy ${r.label.toLowerCase()} as a C literal`}
+                >
+                  Copy
+                </button>
+              </div>
+              <div class="field-control">
+                {r.prefix && (
+                  <span class="rep-prefix" aria-hidden="true">
+                    {r.prefix}
+                  </span>
+                )}
+                <input
+                  type="text"
+                  id={`f-${r.base}`}
+                  name={r.base}
+                  value={formatIn(r.base, DEFAULT_BITS, DEFAULT_WIDTH, false)}
+                  autocomplete="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  inputmode="text"
+                  aria-describedby={`f-${r.base}-err`}
+                />
+              </div>
+              <p class="error" id={`f-${r.base}-err`} data-error-for={r.base} aria-live="polite"></p>
+            </div>
+          ))
+        }
+      </div>
+      <p class="help">Type in any field; the others follow. Prefixes 0x, 0b, 0o, underscores and spaces are accepted.</p>
+
+      <div class="bf-head">
+        <h3 class="bf-title">Bits <span class="help">click or drag to toggle · arrow keys move · 0 / 1 set</span></h3>
+        <div class="btn-row" role="group" aria-label="Quick operations on A">
+          <button class="btn btn--sm" type="button" data-act="clear">Clear</button>
+          <button class="btn btn--sm" type="button" data-act="ones">All ones</button>
+          <button class="btn btn--sm" type="button" data-act="invert">Invert</button>
+          <button class="btn btn--sm" type="button" data-act="shl" aria-label="Shift left by one">« 1</button>
+          <button class="btn btn--sm" type="button" data-act="shr" aria-label="Shift right by one (logical)">» 1</button>
+          <button class="btn btn--sm" type="button" data-act="bswap">Byte swap</button>
+        </div>
+      </div>
+      <BitField id="bitfield" width={DEFAULT_WIDTH} bits={DEFAULT_BITS} label="Bits of A, most significant first" />
+
+      <dl class="bf-stats">
+        <div><dt>Set bits</dt><dd data-result="popcount">4</dd></div>
+        <div><dt>Highest set</dt><dd data-result="msb">7</dd></div>
+        <div><dt>Lowest set</dt><dd data-result="lsb">0</dd></div>
+        <div><dt>Leading zeros</dt><dd data-result="clz">24</dd></div>
+        <div><dt>Trailing zeros</dt><dd data-result="ctz">0</dd></div>
+        <div><dt>Parity</dt><dd data-result="parity">even</dd></div>
+      </dl>
+
+      <div class="labels-row">
+        <div class="field">
+          <label for="f-labels">Register fields <span class="help">(optional)</span></label>
+          <div class="field-control">
+            <input
+              type="text"
+              id="f-labels"
+              name="labels"
+              value=""
+              placeholder="[7:4] MODE, [3] EN, [2:0] DIV"
+              autocomplete="off"
+              spellcheck="false"
+              aria-describedby="f-labels-help f-labels-err"
+            />
+          </div>
+          <p class="help" id="f-labels-help"> Name bit ranges to draw them over the bits and read each field’s value. Also accepts MODE[7:4] and 7..4 MODE. </p>
+          <p class="error" id="f-labels-err" data-error-for="labels" aria-live="polite"></p>
+        </div>
+        <button class="btn" type="button" id="labels-example">Try an example</button>
+      </div>
+
+      <div class="table-wrap fields-wrap" id="fields-wrap" hidden>
+        <table class="data">
+          <caption class="visually-hidden">Field values of A</caption>
+          <thead>
+            <tr>
+              <th scope="col">Field</th>
+              <th scope="col">Bits</th>
+              <th scope="col" class="num">Width</th>
+              <th scope="col" class="num">Hex</th>
+              <th scope="col" class="num">Dec</th>
+              <th scope="col">Binary</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody id="fields-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel section" aria-labelledby="ops-title">
+      <h2 class="panel-title" id="ops-title">Bitwise operations</h2>
+      <div class="fields ops-inputs">
+        <NumberInput name="b" label="Operand B" value="0x0F" inputmode="text" help="Decimal, or 0x / 0b / 0o" />
+        <NumberInput name="n" label="Shift / rotate n" value="4" inputmode="numeric" help="Bits, 0–255" />
+      </div>
+      <div class="table-wrap">
+        <table class="data ops">
+          <caption class="visually-hidden">Results of bitwise operations on A, truncated to the selected width</caption>
+          <thead>
+            <tr>
+              <th scope="col">Operation</th>
+              <th scope="col" class="num">Hex</th>
+              <th scope="col">Binary</th>
+              <th scope="col" class="num">Decimal</th>
+              <th scope="col"><span class="visually-hidden">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              ops.map((o) => (
+                <tr>
+                  <th scope="row" class="mono op-expr">{o.expr}</th>
+                  <td class="num" id={`op-${o.id}-hex`} data-result={`op-${o.id}-hex`}>—</td>
+                  <td class="mono op-bin" data-result={`op-${o.id}-bin`}>—</td>
+                  <td class="num" data-result={`op-${o.id}-dec`}>—</td>
+                  <td class="op-actions">
+                    <button class="copy-btn" type="button" data-copy={`#op-${o.id}-hex`} aria-label={`Copy ${o.expr} in hex`}>
+                      Copy
+                    </button>
+                    <button class="copy-btn" type="button" data-load={o.id} aria-label={`Load ${o.expr} into A`}>
+                      → A
+                    </button>
+                  </td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+      <p class="note note--warn" id="shift-note" hidden></p>
+    </section>
+
+    <section class="panel section" aria-labelledby="mask-title" id="mask-panel">
+      <h2 class="panel-title" id="mask-title">C mask generator</h2>
+      <div class="fields">
+        <NumberInput name="mbits" label="Bit or range" value="5" inputmode="text" help="5, or 7:4 for a field" />
+        <NumberInput name="mreg" label="Register" value="reg" inputmode="text" help="e.g. GPIOA->ODR" />
+        <NumberInput name="mname" label="Define prefix" value="" inputmode="text" placeholder="BIT / FIELD" help="For _Pos / _Msk" />
+      </div>
+      <Toggle name="i16" label="Target has 16-bit int (AVR, MSP430)" help="Makes 1U only 16 bits wide, so 32-bit masks need 1UL." />
+      <CodeOutput name="mask" label="C" />
+      <p class="help"> Suffixes follow the register width (U, UL on 16-bit-int targets, ULL for 64-bit), so <code>~mask</code> never clears the upper half of a wide register. The insert line uses the field’s current value in A. </p>
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>Unsigned:  A = Σ bᵢ·2ⁱ                         (i = 0 … w−1)
+Signed:    A = −b₍w−1₎·2^(w−1) + Σ bᵢ·2ⁱ        (i = 0 … w−2)   two's complement
+Negation:  −A = ~A + 1   (mod 2^w)
+
+Logical  A >> n : zeros shifted in from the top
+Arith.   A >> n : copies of the sign bit shifted in
+rotl(A, n) = (A << k) | (A >> (w − k)),  k = n mod w
+
+Field [hi:lo]:  width = hi − lo + 1
+                mask  = ((1 << width) − 1) << lo
+                value = (A >> lo) & ((1 << width) − 1)</pre>
+    <p> All arithmetic uses JavaScript BigInt, so 64-bit values are exact (a plain JavaScript number loses precision above 2⁵³). Every result is truncated to the selected width, exactly like an unsigned integer of that size in C. Shifts by n ≥ width are shown as their mathematical result (0, or all sign bits for an arithmetic shift), which is <em>not</em> what C guarantees: see below. </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Two’s complement in one paragraph</h2>
+    <p> A <code>w</code>-bit register just holds a pattern; signedness is how you read it. In two’s complement the top bit weighs <code>−2^(w−1)</code> instead of <code>+2^(w−1)</code>, so <code>0xFF</code> is 255 as a <code>uint8_t</code> and −1 as an <code>int8_t</code>. Negating is “invert and add one”, the most negative value (<code>0x80</code> at 8 bits, −128) has no positive counterpart, and adding one to the largest value wraps to the smallest. Switch between Unsigned and Signed above to see the same bits read both ways. </p>
+
+    <h2>C pitfalls worth knowing by heart</h2>
+    <ul>
+      <li> <strong><code>1 &lt;&lt; 31</code> is undefined behaviour</strong> when <code>int</code> is 32 bits: the result does not fit in a signed int. Write <code>1U &lt;&lt; 31</code>. On AVR and MSP430 <code>int</code> is 16 bits, so even <code>1 &lt;&lt; 15</code> is a problem and <code>1U &lt;&lt; 20</code> is undefined — use <code>1UL</code>. For 64-bit values use <code>1ULL</code> or <code>UINT64_C(1)</code>. </li>
+      <li> <strong>Shifting by the type’s width or more is undefined</strong>, not zero. On x86 and Arm the hardware masks the shift count, so <code>x &gt;&gt; 32</code> on a 32-bit value often returns <code>x</code> unchanged. Guard computed shift counts, and never build an all-ones mask as <code>(1U &lt;&lt; 32) − 1</code>. </li>
+      <li> <strong>Right-shifting a negative signed value is implementation-defined</strong> in C (GCC, Clang, IAR and Arm Compiler all shift arithmetically; C++20 made that mandatory). Left-shifting a negative value is undefined. Do bit manipulation on unsigned types and convert at the edges. </li>
+      <li> <strong><code>~</code> on a narrow mask clears too much.</strong> <code>reg64 &amp;= ~(1U &lt;&lt; 3)</code> computes a 32-bit <code>0xFFFFFFF7</code>, which zero-extends and wipes bits 63…32. The mask generator picks the suffix from the register width to avoid this. </li>
+      <li> <strong>Integer promotion.</strong> <code>uint8_t</code> and <code>uint16_t</code> operands are promoted to <code>int</code> before any operator, so <code>(uint8_t)x &lt;&lt; 24</code> can overflow a signed int and <code>~u8 == 0xF0</code> is never true. Cast the result back: <code>(uint8_t)~u8</code>. </li>
+      <li> <strong>Read-modify-write is not atomic.</strong> <code>GPIOA-&gt;ODR |= mask</code> is a load, an OR and a store; an interrupt in between can lose a write. Prefer set/clear registers (BSRR on STM32, OUTSET/OUTCLR on nRF and SAM), bit-banding, or disable interrupts around the update. </li>
+    </ul>
+
+    <h2>Reading register fields</h2>
+    <p> Datasheets describe registers as fields such as <code>[7:4] MODE</code>. Paste the field list from the reference manual into “Register fields”, enter the register value you read in the debugger, and each field’s value appears in the table. The “C mask” button turns a field into CMSIS-style <code>_Pos</code> / <code>_Msk</code> defines and extract/insert code. For byte order and hex dumps, see the <a href={toolUrl('bytes')}>Bytes &amp; Endianness</a> tool; for float bit patterns, the <a href={toolUrl('float')}>IEEE-754 converter</a>. </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, esc, setError, setResult, show, clearResults } from '../../scripts/tool-client';
+  import type { Values } from '../../lib/url-state';
+  import {
+    WIDTHS,
+    and,
+    bitFieldMarkup,
+    cLiteral,
+    clz,
+    ctz,
+    fieldRangeText,
+    fieldValue,
+    formatBin,
+    formatHex,
+    formatIn,
+    highestSetBit,
+    interpret,
+    isCIdentifier,
+    lowestSetBit,
+    maskCode,
+    maskOf,
+    not,
+    or,
+    parseBitRange,
+    parseFieldLabels,
+    parseInteger,
+    parseOperand,
+    parseValue,
+    popcount,
+    rangeOf,
+    rotl,
+    rotr,
+    shl,
+    shrArithmetic,
+    shrLogical,
+    testBit,
+    toBits,
+    xor,
+    type Base,
+    type FieldLabel,
+    type Width,
+  } from '../../lib/binary';
+  import { byteSwap } from '../../lib/bytes';
+
+  const BASES: Base[] = ['dec', 'hex', 'oct', 'bin'];
+  const OPS = ['and', 'or', 'xor', 'not', 'neg', 'shl', 'shr', 'sar', 'rol', 'ror'];
+  const EXAMPLES: Record<number, string> = {
+    8: '[7:4] MODE, [3] EN, [2:0] DIV',
+    16: '[15:12] PRESC, [11:8] CH, [7:4] MODE, [3] EN, [2:0] DIV',
+    32: '[31:24] ID, [19:12] PRESC, [7:4] MODE, [3] EN, [2:0] DIV',
+    64: '[63:56] ID, [47:32] COUNT, [19:12] PRESC, [7:4] MODE, [3] EN, [2:0] DIV',
+  };
+
+  const form = document.getElementById('bin-form') as HTMLFormElement;
+  const hidden = form.elements.namedItem('v') as HTMLInputElement;
+  const bf = document.getElementById('bitfield')!;
+  const input = (name: string) => form.elements.namedItem(name) as HTMLInputElement;
+
+  let active: Base | null = null;
+  let state = { bits: 0xa5n, width: 32 as Width, signed: false };
+  let initialised = false;
+  let fields: FieldLabel[] = [];
+  let structure = '';
+  let focusBit = 31;
+  const opValues = new Map<string, bigint>();
+  let run: () => void = () => {};
+
+  // ---------- Bit-field rendering ----------
+
+  function perRow(): number {
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    return bf.clientWidth >= 26 * rem ? 16 : 8;
+  }
+
+  function renderBits(): void {
+    const { bits, width, signed } = state;
+    if (focusBit >= width) focusBit = width - 1;
+    const per = perRow();
+    const key = `${width}|${per}|${signed}|${JSON.stringify(fields)}`;
+    if (key !== structure) {
+      const focused = document.activeElement instanceof HTMLElement && bf.contains(document.activeElement);
+      bf.innerHTML = bitFieldMarkup(width, per, fields, signed, bits);
+      bf.dataset.perRow = String(Math.min(per, width));
+      structure = key;
+      if (focused) bf.querySelector<HTMLElement>(`[data-bit="${focusBit}"]`)?.focus({ preventScroll: true });
+    }
+    bf.querySelectorAll<HTMLButtonElement>('.bf-bit').forEach((btn) => {
+      const bit = Number(btn.dataset.bit);
+      const on = testBit(bits, bit);
+      btn.setAttribute('aria-pressed', String(on));
+      btn.textContent = on ? '1' : '0';
+      btn.tabIndex = bit === focusBit ? 0 : -1;
+    });
+    bf.querySelectorAll<HTMLElement>('.bf-hex').forEach((el) => {
+      el.textContent = Number((bits >> BigInt(Number(el.dataset.nib))) & 0xfn).toString(16).toUpperCase();
+    });
+  }
+
+  /** Commit a new bit pattern from a non-typing source (bit toggle, quick op, → A). */
+  function commit(bits: bigint): void {
+    active = null;
+    state.bits = toBits(bits, state.width);
+    hidden.value = state.bits.toString(16).toUpperCase();
+    run();
+  }
+
+  function setBit(bit: number, on: boolean): void {
+    const m = 1n << BigInt(bit);
+    commit(on ? state.bits | m : state.bits & ~m);
+  }
+
+  // Keyboard: roving tabindex, arrows move, Home/End jump, 0/1 set, Space/Enter toggle (native click).
+  bf.addEventListener('keydown', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('.bf-bit');
+    if (!btn) return;
+    const bit = Number(btn.dataset.bit);
+    const per = Number(bf.dataset.perRow) || 16;
+    const keys: Record<string, number> = {
+      ArrowLeft: bit + 1,
+      ArrowRight: bit - 1,
+      ArrowUp: bit + per,
+      ArrowDown: bit - per,
+      Home: state.width - 1,
+      End: 0,
+    };
+    if (e.key === '0' || e.key === '1') {
+      e.preventDefault();
+      setBit(bit, e.key === '1');
+      return;
+    }
+    if (!(e.key in keys)) return;
+    e.preventDefault();
+    const next = keys[e.key];
+    if (next < 0 || next >= state.width) return;
+    focusBit = next;
+    renderBits();
+    bf.querySelector<HTMLElement>(`[data-bit="${next}"]`)?.focus();
+  });
+
+  // Pointer: press toggles a bit; dragging paints the same state across neighbours.
+  let paint: boolean | null = null;
+  bf.addEventListener('pointerdown', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('.bf-bit');
+    if (!btn || e.button !== 0) return;
+    e.preventDefault();
+    btn.focus({ preventScroll: true });
+    if (btn.hasPointerCapture(e.pointerId)) btn.releasePointerCapture(e.pointerId);
+    const bit = Number(btn.dataset.bit);
+    focusBit = bit;
+    paint = !testBit(state.bits, bit);
+    setBit(bit, paint);
+  });
+  bf.addEventListener('pointermove', (e) => {
+    if (paint === null) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('.bf-bit');
+    if (!el || !bf.contains(el)) return;
+    const bit = Number(el.dataset.bit);
+    if (testBit(state.bits, bit) !== paint) setBit(bit, paint);
+  });
+  for (const ev of ['pointerup', 'pointercancel']) window.addEventListener(ev, () => (paint = null));
+  bf.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('.bf-bit');
+    // Pointer clicks were handled on pointerdown; detail 0 means keyboard (Space / Enter).
+    if (!btn || e.detail !== 0) return;
+    const bit = Number(btn.dataset.bit);
+    focusBit = bit;
+    setBit(bit, !testBit(state.bits, bit));
+  });
+  new ResizeObserver(() => renderBits()).observe(bf);
+
+  // ---------- Representation fields ----------
+
+  for (const b of BASES) {
+    const el = input(b);
+    el.addEventListener('input', () => (active = b));
+    el.addEventListener('blur', () => {
+      if (active === b) {
+        active = null;
+        run();
+      }
+    });
+  }
+
+  // ---------- Buttons ----------
+
+  form.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-act], [data-load], [data-mask-field], #labels-example');
+    if (!t) return;
+    const { bits, width } = state;
+    if (t.id === 'labels-example') {
+      input('labels').value = EXAMPLES[width];
+      run();
+      return;
+    }
+    if (t.dataset.load) {
+      const v = opValues.get(t.dataset.load);
+      if (v !== undefined) commit(v);
+      return;
+    }
+    if (t.dataset.maskField !== undefined) {
+      const f = fields[Number(t.dataset.maskField)];
+      if (!f) return;
+      input('mbits').value = f.hi === f.lo ? String(f.hi) : `${f.hi}:${f.lo}`;
+      input('mname').value = isCIdentifier(f.name) ? f.name : '';
+      run();
+      const panel = document.getElementById('mask-panel')!;
+      panel.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+      return;
+    }
+    switch (t.dataset.act) {
+      case 'clear':
+        return commit(0n);
+      case 'ones':
+        return commit(maskOf(width));
+      case 'invert':
+        return commit(not(bits, width));
+      case 'shl':
+        return commit(shl(bits, 1, width));
+      case 'shr':
+        return commit(shrLogical(bits, 1, width));
+      case 'bswap':
+        return width === 8 ? undefined : commit(byteSwap(bits, width));
+    }
+  });
+
+  // ---------- Main update ----------
+
+  function update(v: Values): void {
+    const width = (WIDTHS.includes(Number(v.w) as Width) ? Number(v.w) : 32) as Width;
+    const signed = v.s === 'signed';
+    let bits: bigint;
+
+    if (active) {
+      const r = parseValue(v[active], active, width, signed);
+      for (const b of BASES) if (b !== active) setError(b, null);
+      if (!r.ok) {
+        setError(active, r.error);
+        return;
+      }
+      setError(active, null);
+      bits = r.value;
+    } else {
+      const p = parseInteger(v.v || '0', 'hex');
+      const raw = p.ok && p.value.value >= 0n ? p.value.value : 0n;
+      if (initialised && state.width !== width) {
+        // Width changed: keep the number if it still fits (−1 stays −1), otherwise truncate.
+        const num = interpret(state.bits, state.width, state.signed);
+        const r = rangeOf(width, signed);
+        bits = num >= r.min && num <= r.max ? toBits(num, width) : toBits(state.bits, width);
+      } else bits = toBits(raw, width);
+      for (const b of BASES) setError(b, null);
+    }
+    initialised = true;
+    state = { bits, width, signed };
+    hidden.value = bits.toString(16).toUpperCase();
+    v.v = hidden.value; // bindForm writes this object to the URL after update()
+
+    for (const b of BASES) {
+      if (b !== active) input(b).value = formatIn(b, bits, width, signed);
+      const btn = form.querySelector<HTMLElement>(`[data-rep-copy="${b}"]`);
+      if (btn) btn.dataset.copyText = cLiteral(b, bits, width, signed);
+    }
+    const range = rangeOf(width, signed);
+    setResult('range', `${range.min} … ${range.max}`);
+    form.querySelector<HTMLButtonElement>('[data-act="bswap"]')!.disabled = width === 8;
+
+    // Field labels
+    const lp = parseFieldLabels(v.labels ?? '', width);
+    fields = lp.fields;
+    setError('labels', lp.errors.length ? lp.errors.join(' ') : null);
+    renderBits();
+    renderStats();
+    renderFields();
+    renderOps(v);
+    renderMask(v);
+  }
+
+  function renderStats(): void {
+    const { bits, width } = state;
+    const pc = popcount(bits);
+    setResult('popcount', String(pc));
+    setResult('msb', bits === 0n ? 'none' : String(highestSetBit(bits)));
+    setResult('lsb', bits === 0n ? 'none' : String(lowestSetBit(bits)));
+    setResult('clz', String(clz(bits, width)));
+    setResult('ctz', String(ctz(bits, width)));
+    setResult('parity', pc % 2 ? 'odd' : 'even');
+  }
+
+  function renderFields(): void {
+    const body = document.getElementById('fields-body')!;
+    show('fields-wrap', fields.length > 0);
+    body.innerHTML = fields
+      .map((f, i) => {
+        const w = f.hi - f.lo + 1;
+        const val = fieldValue(state.bits, f);
+        const hex = `0x${val.toString(16).toUpperCase().padStart(Math.ceil(w / 4), '0')}`;
+        const name = f.name || fieldRangeText(f);
+        return `<tr>
+          <th scope="row" class="mono">${esc(name)}</th>
+          <td class="mono">${fieldRangeText(f)}</td>
+          <td class="num">${w}</td>
+          <td class="num">${hex}</td>
+          <td class="num">${val}</td>
+          <td class="mono">${formatBin(val, w)}</td>
+          <td><button class="copy-btn" type="button" data-mask-field="${i}" aria-label="C mask code for ${esc(name)}">C mask</button></td>
+        </tr>`;
+      })
+      .join('');
+  }
+
+  function renderOps(v: Values): void {
+    const { bits: a, width: w, signed } = state;
+    const bRes = parseOperand(v.b, w);
+    setError('b', bRes.ok ? null : bRes.error);
+    const nText = v.n.trim();
+    let n: number | null = null;
+    if (!/^\d+$/.test(nText)) setError('n', 'n must be a whole number of bits, e.g. 4.');
+    else if (Number(nText) > 255) setError('n', 'n must be between 0 and 255.');
+    else {
+      n = Number(nText);
+      setError('n', null);
+    }
+    const b = bRes.ok ? bRes.value : null;
+    const results: Record<string, bigint | null> = {
+      and: b === null ? null : and(a, b, w),
+      or: b === null ? null : or(a, b, w),
+      xor: b === null ? null : xor(a, b, w),
+      not: not(a, w),
+      neg: toBits(-a, w),
+      shl: n === null ? null : shl(a, n, w),
+      shr: n === null ? null : shrLogical(a, n, w),
+      sar: n === null ? null : shrArithmetic(a, n, w),
+      rol: n === null ? null : rotl(a, n, w),
+      ror: n === null ? null : rotr(a, n, w),
+    };
+    opValues.clear();
+    for (const id of OPS) {
+      const r = results[id];
+      if (r === null) {
+        clearResults(`op-${id}-hex`, `op-${id}-bin`, `op-${id}-dec`);
+        continue;
+      }
+      opValues.set(id, r);
+      setResult(`op-${id}-hex`, `0x${formatHex(r, w, false)}`);
+      setResult(`op-${id}-bin`, formatBin(r, w));
+      setResult(`op-${id}-dec`, interpret(r, w, signed).toString());
+    }
+    const notes: string[] = [];
+    if (n !== null && n >= w) {
+      notes.push(
+        `n = ${n} is not less than the ${w}-bit width. In C that shift is undefined behaviour (x86 and Arm mask the count, so you may get A >> ${n % w} instead); rotates use n mod ${w} = ${n % w}.`,
+      );
+    }
+    if (n !== null && n > 0 && interpret(a, w, true) < 0n) {
+      notes.push(
+        'A has its top bit set, so logical and arithmetic right shifts differ. In C, >> on a negative signed value is implementation-defined (arithmetic on GCC, Clang, IAR, Arm Compiler); use an unsigned type for a logical shift.',
+      );
+    }
+    const note = document.getElementById('shift-note')!;
+    note.textContent = notes.join(' ');
+    note.hidden = notes.length === 0;
+  }
+
+  function renderMask(v: Values): void {
+    const { width, bits } = state;
+    const range = parseBitRange(v.mbits, width);
+    setError('mbits', range.ok ? null : range.error);
+    const reg = v.mreg.trim();
+    const regOk = reg === '' || /^[A-Za-z_][\w\s\->.\[\]()*]*$/.test(reg);
+    setError('mreg', regOk ? null : 'Register must be a C expression such as reg or GPIOA->ODR.');
+    const name = v.mname.trim();
+    const nameOk = name === '' || isCIdentifier(name);
+    setError('mname', nameOk ? null : 'Prefix must be a C identifier: letters, digits and _, not starting with a digit.');
+    if (!range.ok || !regOk || !nameOk) return clearResults('mask');
+    const { hi, lo } = range.value;
+    setResult(
+      'mask',
+      maskCode({
+        hi,
+        lo,
+        regWidth: width,
+        reg: reg || 'reg',
+        name: name || undefined,
+        int16: v.i16 === '1',
+        value: hi > lo ? fieldValue(bits, range.value) : undefined,
+      }),
+    );
+  }
+
+  run = bindForm(form, update, { skipUrl: BASES });
+</script>
+
+<style>
+  .bin-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--s3) var(--s5);
+    margin-bottom: var(--s4);
+  }
+  .bin-range {
+    margin: 0 0 var(--s2);
+  }
+  .reps {
+    display: grid;
+    gap: var(--s3) var(--s4);
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 40rem) {
+    .reps {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .rep--bin {
+      grid-column: 1 / -1;
+    }
+  }
+  .rep-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--s2);
+  }
+  .rep-prefix {
+    display: flex;
+    align-items: center;
+    padding: 0 var(--s2);
+    border: 1px solid var(--rule);
+    border-right: 0;
+    border-radius: var(--radius) 0 0 var(--radius);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--ink-muted);
+    background: var(--surface);
+  }
+  .rep-prefix + input {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+  .rep input {
+    font-size: var(--text-lg);
+    letter-spacing: 0.02em;
+  }
+  .reps + .help {
+    margin-top: var(--s2);
+  }
+  .bf-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--s2) var(--s4);
+    margin: var(--s5) 0 var(--s3);
+    padding-top: var(--s4);
+    border-top: 1px solid var(--rule);
+  }
+  .bf-title {
+    margin: 0;
+    font-size: var(--text-base);
+  }
+  .bf-title .help {
+    font-weight: 400;
+    margin-left: var(--s2);
+  }
+  .btn--sm {
+    padding: var(--s1) var(--s2);
+    font-size: 0.8rem;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .bf-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s1) var(--s5);
+    margin: var(--s4) 0 0;
+    font-size: var(--text-sm);
+  }
+  .bf-stats div {
+    display: flex;
+    gap: var(--s2);
+    align-items: baseline;
+  }
+  .bf-stats dt {
+    color: var(--ink-muted);
+  }
+  .bf-stats dd {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .labels-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: var(--s3);
+    margin-top: var(--s5);
+    padding-top: var(--s4);
+    border-top: 1px solid var(--rule);
+  }
+  .labels-row > .btn {
+    margin-top: 1.55rem;
+  }
+  @media (max-width: 30rem) {
+    .labels-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .labels-row > .btn {
+      margin-top: 0;
+      justify-self: start;
+    }
+  }
+  .fields-wrap {
+    margin-top: var(--s4);
+  }
+  .ops-inputs {
+    margin-bottom: var(--s4);
+  }
+  .ops .op-expr {
+    font-weight: 600;
+    color: var(--ink);
+    background: transparent;
+    position: static;
+  }
+  .op-bin {
+    letter-spacing: 0.02em;
+  }
+  .op-actions {
+    display: flex;
+    gap: var(--s1);
+  }
+  #mask-panel :global(.check) {
+    margin-top: var(--s2);
+  }
+</style>

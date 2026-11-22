@@ -1,0 +1,411 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import { MODELS } from '../../lib/lora-link';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'Semtech, SX1276/77/78/79 Datasheet Rev. 7 (May 2020), §2.5 receiver sensitivity and §4.1.1.2 table 13 (SNR per spreading factor)',
+    href: 'https://www.semtech.com/products/wireless-rf/lora-connect/sx1276',
+  },
+  { title: 'Semtech, AN1200.22 — LoRa Modulation Basics', note: 'sensitivity = −174 + 10·log10(BW) + NF + SNR' },
+  {
+    title: 'M. Hata, “Empirical formula for propagation loss in land mobile radio services”, IEEE Trans. Veh. Technol. VT-29, no. 3 (1980)',
+  },
+  { title: 'ITU-R P.529-3 — Prediction methods for the terrestrial land mobile service in the VHF and UHF bands', note: 'Okumura-Hata' },
+  { title: 'ITU-R P.525-4 — Calculation of free-space attenuation', href: 'https://www.itu.int/rec/R-REC-P.525/en' },
+  {
+    title: 'LoRa Alliance, RP002-1.0.4 LoRaWAN Regional Parameters',
+    href: 'https://resources.lora-alliance.org/technical-specifications/rp002-1-0-4-regional-parameters',
+    note: 'default max EIRP: EU868 +16 dBm, US915 +30 dBm conducted',
+  },
+];
+
+const modelOptions = MODELS.map((m) => ({ value: m.id, label: m.label }));
+---
+
+<ToolLayout slug="lora-link" references={references}>
+  <form id="link-form" novalidate>
+    <div class="tool-grid">
+      <div class="panel">
+        <h2 class="panel-title">Radio</h2>
+        <div class="fields fields--wide">
+          <Segmented
+            name="sf"
+            label="Spreading factor"
+            value="10"
+            options={[7, 8, 9, 10, 11, 12].map((s) => ({ value: String(s), label: `SF${s}` }))}
+          />
+          <Segmented
+            name="bw"
+            label="Bandwidth"
+            value="125"
+            options={[
+              { value: '125', label: '125 kHz' },
+              { value: '250', label: '250 kHz' },
+              { value: '500', label: '500 kHz' },
+            ]}
+          />
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <NumberInput name="freq" label="Frequency" value="868" unit="MHz" help="433, 868, 915 … MHz" />
+          <NumberInput name="nf" label="Receiver noise figure" value="6" unit="dB" help="SX127x / SX130x gateways: about 6 dB" />
+        </div>
+
+        <h2 class="panel-title" style="margin-top: var(--s5)">Transmitter</h2>
+        <div class="fields">
+          <NumberInput name="ptx" label="TX power" value="14" unit="dBm" help="Conducted, at the radio pin" />
+          <NumberInput name="gtx" label="Antenna gain" value="0" unit="dBi" help="Small device antennas: −5 to +2 dBi" />
+          <NumberInput name="ltx" label="Cable / matching loss" value="0" unit="dB" />
+        </div>
+
+        <h2 class="panel-title" style="margin-top: var(--s5)">Receiver</h2>
+        <div class="fields">
+          <NumberInput name="grx" label="Antenna gain" value="3" unit="dBi" help="Gateway omni: 3–8 dBi" />
+          <NumberInput name="lrx" label="Cable / connector loss" value="1" unit="dB" help="Feeder and lightning arrestor" />
+        </div>
+
+        <h2 class="panel-title" style="margin-top: var(--s5)">Environment</h2>
+        <div class="fields fields--wide">
+          <SelectInput name="model" label="Path-loss model" options={modelOptions} value="hata-urban" help="Okumura-Hata for typical gateway-to-device links" />
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <div id="n-field">
+            <NumberInput name="n" label="Path-loss exponent n" value="3" help="2 free space, 2.7–3.5 urban, 4–6 indoor" />
+          </div>
+          <NumberInput name="hb" label="Gateway antenna height" value="30" unit="m" help="Above ground" />
+          <NumberInput name="hm" label="Device antenna height" value="1.5" unit="m" help="Above ground" />
+          <NumberInput name="fade" label="Fade margin" value="10" unit="dB" help="Shadowing and fading reserve" />
+          <NumberInput name="extra" label="Extra loss" value="0" unit="dB" help="Building penetration 10–20 dB, body 3–10 dB" />
+        </div>
+      </div>
+
+      <section class="panel" aria-labelledby="link-results">
+        <h2 class="panel-title" id="link-results">Results</h2>
+        <dl class="results">
+          <ResultRow label="Estimated range" name="range" primary />
+          <ResultRow label="EIRP / ERP" name="eirp" />
+          <ResultRow label="Noise floor (−174 + 10·log BW + NF)" name="noise" unit="dBm" />
+          <ResultRow label="Required SNR" name="snrReq" unit="dB" />
+          <ResultRow label="Receiver sensitivity" name="sens" unit="dBm" />
+          <ResultRow label="Maximum path loss (zero margin)" name="mapl" unit="dB" />
+          <ResultRow label="Path loss left for propagation" name="apl" unit="dB" />
+          <ResultRow label="Radio horizon (k = 4/3)" name="horizon" />
+          <ResultRow label="First Fresnel zone radius at mid-range (keep 60 % clear)" name="fresnel" />
+        </dl>
+        <p class="note note--warn" id="reg-note" hidden></p>
+        <p class="note note--warn" id="horizon-note" hidden></p>
+        <p class="note note--warn" id="hata-note" hidden></p>
+
+        <h3 class="sub-title">Check a distance</h3>
+        <div class="fields">
+          <NumberInput
+            name="dist"
+            label="Distance"
+            value="2"
+            units={[
+              { value: 'm', label: 'm' },
+              { value: 'km', label: 'km' },
+            ]}
+            unitValue="km"
+          />
+        </div>
+        <dl class="results">
+          <ResultRow label="Path loss" name="plAt" unit="dB" />
+          <ResultRow label="Expected RSSI" name="rssi" unit="dBm" />
+          <ResultRow label="Expected SNR" name="snr" unit="dB" />
+          <ResultRow label="Link margin (RSSI − sensitivity)" name="margin" unit="dB" />
+        </dl>
+        <p class="note" id="margin-note" aria-live="polite" hidden></p>
+      </section>
+    </div>
+
+    <section class="section" aria-labelledby="sf-title">
+      <div class="sec-head">
+        <h2 id="sf-title">Same link at every spreading factor</h2>
+        <button class="copy-btn" type="button" id="sf-copy" data-copy-text="" aria-label="Copy spreading factor table">Copy table</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>SF</th>
+              <th class="num">Required SNR</th>
+              <th class="num">Sensitivity</th>
+              <th class="num">Max path loss</th>
+              <th class="num">Range</th>
+              <th class="num">Margin at <span data-result="distLabel">2 km</span></th>
+            </tr>
+          </thead>
+          <tbody id="sf-body"></tbody>
+        </table>
+      </div>
+      <p class="note">
+        Each SF step buys 2.5 dB of sensitivity and doubles the airtime. Compare the cost in the
+        <a href={toolUrl('lora-toa')}>LoRa time-on-air calculator</a>.
+      </p>
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>EIRP          = Ptx + Gtx − Ltx                       ERP = EIRP − 2.15 dB
+Noise floor   = −174 dBm/Hz + 10·log10(BW) + NF
+Sensitivity   = Noise floor + SNRreq(SF)              SNRreq: SF7 −7.5 … SF12 −20 dB (2.5 dB steps)
+Max path loss = EIRP + Grx − Lrx − Sensitivity
+Allowed loss  = Max path loss − fade margin − extra loss
+RSSI(d)       = EIRP − PL(d) − extra loss + Grx − Lrx
+SNR(d)        = RSSI(d) − Noise floor
+
+Free space      PL = 20·log10(d_km) + 20·log10(f_MHz) + 32.44
+Okumura-Hata    PL = 69.55 + 26.16·log f − 13.82·log hb − a(hm) + (44.9 − 6.55·log hb)·log d_km
+  small/medium city  a(hm) = (1.1·log f − 0.7)·hm − (1.56·log f − 0.8)
+  large city         a(hm) = 3.2·(log(11.75·hm))² − 4.97        (f ≥ 300 MHz)
+  suburban           PL − 2·(log(f/28))² − 5.4
+  open / rural       PL − 4.78·(log f)² + 18.33·log f − 40.94
+Log-distance    PL = FSPL(1 m) + 10·n·log10(d_m)
+
+Radio horizon   d_km = 4.12·(√hb + √hm)                (heights in m, k = 4/3)
+Fresnel zone    r = ½·√(λ·d)                           (first zone, at mid-path)</pre>
+    <p>
+      Range is the distance at which the model's path loss equals the allowed loss, solved exactly from the formulas
+      above. Okumura-Hata is an empirical fit to measurements in Tokyo for 150–1500 MHz, gateway heights of 30–200 m,
+      device heights of 1–10 m and distances of 1–20 km. Outside those bounds the tool still computes a value but flags
+      it. The sensitivity uses the SX1276 demodulator SNR table; datasheet sensitivity figures for SX126x and SX130x
+      gateways are within about 1 dB of this at NF 6 dB.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>What a LoRa link budget tells you</h2>
+    <p>
+      A link budget adds up everything between the transmitter's power amplifier and the receiver's demodulator: output
+      power, antenna gains, cable losses and the path loss in between. The link closes when the received signal stays
+      above the receiver sensitivity. LoRa can demodulate signals below the noise floor, which is where its range comes
+      from: at SF12 the receiver still decodes a signal 20 dB under the noise, so a 125 kHz channel reaches about −137 dBm
+      sensitivity, far below what FSK reaches at a similar bit rate.
+    </p>
+    <h3>Spreading factor, bandwidth and noise figure</h3>
+    <p>
+      Every step up in spreading factor gains 2.5 dB of sensitivity and doubles the time on air. Halving the bandwidth
+      gains 3 dB, again at the cost of airtime. The noise figure of the receiver adds directly to the noise floor: a
+      gateway with a good LNA (NF 2–3 dB) hears every device about 3 dB better than one at 6 dB. In LoRaWAN the uplink
+      is usually the limiting direction, because a device transmits at +14 dBm while the gateway may transmit at +27 dBm.
+    </p>
+    <h3>Why the range is an estimate</h3>
+    <p>
+      Path-loss models give the median loss over many locations. Real links scatter around that median by 6–10 dB
+      because of buildings, terrain and vegetation, which is what the fade margin covers. With 10 dB margin, most
+      locations at the computed range will work; without margin, about half will. Free space is an upper bound that only
+      holds with clear line of sight and the first Fresnel zone at least 60 % clear. Over long distances the curvature of
+      the earth also blocks the path: beyond the radio horizon the free-space range is not reachable, whatever the budget
+      says.
+    </p>
+    <h3>Indoor devices and gateway placement</h3>
+    <p>
+      A sensor in a basement or behind a concrete wall loses 15–30 dB compared with the same sensor outdoors; put that in
+      Extra loss. Raising the gateway antenna is usually the cheapest gain available: in the Hata model, going from 15 m
+      to 30 m of height cuts the path loss by about 4 dB at 1 km and more further out, and every device in the cell benefits.
+      Then check your battery budget with the <a href={toolUrl('battery-life')}>battery life calculator</a>, since a
+      device that needs SF12 to reach the gateway spends about 20 times more charge per uplink than one at SF7.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<style>
+  .sub-title {
+    margin: var(--s5) 0 var(--s3);
+    font-size: var(--text-base);
+  }
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--s3);
+    flex-wrap: wrap;
+  }
+  .sec-head h2 {
+    margin-bottom: var(--s3);
+  }
+</style>
+
+<script>
+  import { bindForm, clearResults, esc, setError, setResult, show } from '../../scripts/tool-client';
+  import { applyUnit, formatNumber, parseNumber } from '../../lib/format';
+  import {
+    DIPOLE_GAIN_DBI,
+    MODELS,
+    fresnelRadius,
+    hataWarnings,
+    linkBudget,
+    noiseFloor,
+    pathLoss,
+    radioHorizon,
+    rangeForLoss,
+    receivedPower,
+    sfLinkSweep,
+    validateLink,
+    type LinkField,
+    type LinkParams,
+    type ModelId,
+    type ModelParams,
+  } from '../../lib/lora-link';
+
+  const RESULTS = ['range', 'eirp', 'noise', 'snrReq', 'sens', 'mapl', 'apl', 'horizon', 'fresnel', 'plAt', 'rssi', 'snr', 'margin'];
+  const FIELDS: LinkField[] = ['txPower', 'txGain', 'txLoss', 'rxGain', 'rxLoss', 'noiseFigure', 'fadeMargin', 'extraLoss', 'freq', 'hb', 'hm', 'n'];
+  /** Form input name for each validated field. */
+  const INPUT: Record<LinkField, string> = {
+    txPower: 'ptx',
+    txGain: 'gtx',
+    txLoss: 'ltx',
+    rxGain: 'grx',
+    rxLoss: 'lrx',
+    noiseFigure: 'nf',
+    fadeMargin: 'fade',
+    extraLoss: 'extra',
+    freq: 'freq',
+    hb: 'hb',
+    hm: 'hm',
+    n: 'n',
+  };
+
+  const form = document.getElementById('link-form') as HTMLFormElement;
+  const sfBody = document.getElementById('sf-body')!;
+  const sfCopy = document.getElementById('sf-copy')!;
+
+  const db = (x: number) => formatNumber(Math.round(x * 10) / 10, 6);
+  const signed = (x: number) => (x > 0 ? `+${db(x)}` : x < 0 ? `−${db(-x)}` : '0');
+  /** Distances: metres below 1 km, km with 3 significant digits above, "> 1000 km" when the model runs away. */
+  function dist(m: number): string {
+    if (!Number.isFinite(m) || m > 1e6) return '> 1000 km';
+    if (m < 1000) return `${formatNumber(m, 3)} m`;
+    return `${formatNumber(m / 1000, 3)} km`;
+  }
+  const num = (raw: string) => parseNumber(raw) ?? NaN;
+
+  function note(id: string, text: string | null, cls = 'note note--warn') {
+    const el = document.getElementById(id)!;
+    el.className = cls;
+    el.textContent = text ?? '';
+    show(id, text !== null);
+  }
+
+  /** Regulatory hint for the common ISM bands (default LoRaWAN limits, not every national rule). */
+  function regulatoryNote(freq: number, ptx: number, eirp: number): string | null {
+    const erp = eirp - DIPOLE_GAIN_DBI;
+    if (freq >= 863e6 && freq <= 870e6 && erp > 14 + 0.05)
+      return `ERP ${db(erp)} dBm exceeds 25 mW (+14 dBm ERP, +16.15 dBm EIRP), the limit on most EU868 sub-bands (ETSI EN 300 220; only 869.4–869.65 MHz allows 500 mW).`;
+    if (freq >= 902e6 && freq <= 928e6 && (ptx > 30 || eirp > 36))
+      return `FCC §15.247 limits US915 to +30 dBm conducted and +36 dBm EIRP; you have ${db(ptx)} dBm and ${db(eirp)} dBm EIRP.`;
+    return null;
+  }
+
+  bindForm(form, (v) => {
+    const model = (MODELS.some((m) => m.id === v.model) ? v.model : 'hata-urban') as ModelId;
+    show('n-field', model === 'log-distance');
+    const p: LinkParams = {
+      sf: Number(v.sf),
+      bw: Number(v.bw) * 1000,
+      txPower: num(v.ptx),
+      txGain: num(v.gtx),
+      txLoss: num(v.ltx),
+      rxGain: num(v.grx),
+      rxLoss: num(v.lrx),
+      noiseFigure: num(v.nf),
+      fadeMargin: num(v.fade),
+      extraLoss: num(v.extra),
+    };
+    const freqIn = parseNumber(v.freq);
+    const m: ModelParams = {
+      model,
+      freq: freqIn === null ? NaN : applyUnit(v.freq, freqIn, 1e6),
+      hb: num(v.hb),
+      hm: num(v.hm),
+      n: num(v.n),
+    };
+    const distIn = parseNumber(v.dist);
+    const d = distIn === null ? NaN : distIn * (v.distUnit === 'm' ? 1 : 1000);
+
+    const errs = validateLink(p, m);
+    for (const f of FIELDS) setError(INPUT[f], errs[f] ?? null);
+    const distErr = !Number.isFinite(d) || d <= 0;
+    setError('dist', distErr ? 'Distance must be above 0.' : null);
+
+    if (Object.keys(errs).length > 0) {
+      clearResults(...RESULTS);
+      sfBody.innerHTML = '';
+      sfCopy.dataset.copyText = '';
+      for (const id of ['reg-note', 'horizon-note', 'hata-note', 'margin-note']) show(id, false);
+      return;
+    }
+
+    const b = linkBudget(p);
+    const range = rangeForLoss(m, b.allowedPathLoss);
+    const horizon = radioHorizon(m.hb, m.hm);
+    setResult('range', b.allowedPathLoss <= 0 ? 'link does not close' : dist(range));
+    setResult('eirp', `${db(b.eirp)} dBm / ${db(b.erp)} dBm`);
+    setResult('noise', db(b.noiseFloor));
+    setResult('snrReq', db(b.requiredSnr));
+    setResult('sens', db(b.sensitivity));
+    setResult('mapl', db(b.maxPathLoss));
+    setResult('apl', db(b.allowedPathLoss));
+    setResult('horizon', dist(horizon));
+    setResult('fresnel', Number.isFinite(range) && range < 1e6 ? `${formatNumber(fresnelRadius(range, m.freq), 3)} m` : '—');
+
+    note('reg-note', regulatoryNote(m.freq, p.txPower, b.eirp));
+    note('horizon-note', range > horizon ? `The estimated range is beyond the radio horizon of ${dist(horizon)} for these antenna heights: the earth blocks the path before the budget runs out.` : null);
+    const hw = hataWarnings(m, range);
+    note('hata-note', hw.length ? `Outside the Okumura-Hata fitted range (${hw.join(', ')}): treat the range as a rough extrapolation.` : null);
+
+    const distLabel = distErr ? '—' : dist(d);
+    setResult('distLabel', distLabel);
+    let sweepMargin = (_sf: number): number | null => null;
+    if (distErr) {
+      clearResults('plAt', 'rssi', 'snr', 'margin');
+      show('margin-note', false);
+    } else {
+      const pl = pathLoss(m, d);
+      const rssi = receivedPower(p, pl);
+      const margin = rssi - b.sensitivity;
+      setResult('plAt', db(pl));
+      setResult('rssi', db(rssi));
+      setResult('snr', signed(rssi - noiseFloor(p.bw, p.noiseFigure)));
+      setResult('margin', signed(margin));
+      const ok = margin >= p.fadeMargin;
+      note(
+        'margin-note',
+        d > horizon
+          ? `${distLabel} is beyond the ${dist(horizon)} radio horizon: the earth blocks the direct path, so expect no link whatever the budget says.`
+          : margin < 0
+          ? `No link at ${distLabel}: the signal is ${db(-margin)} dB below the sensitivity.`
+          : ok
+            ? `The link closes at ${distLabel} with ${db(margin)} dB to spare, more than your ${db(p.fadeMargin)} dB fade margin.`
+            : `The link closes at ${distLabel}, but with only ${db(margin)} dB of margin, less than the ${db(p.fadeMargin)} dB you asked for: expect losses when fading.`,
+        d > horizon || margin < 0 ? 'note note--error' : ok ? 'note note--ok' : 'note note--warn',
+      );
+      sweepMargin = (sf) => rssi - linkBudget({ ...p, sf }).sensitivity;
+    }
+
+    const rows = sfLinkSweep(p, m);
+    const tsv = [`SF\tRequired SNR (dB)\tSensitivity (dBm)\tMax path loss (dB)\tRange\tMargin at ${distLabel} (dB)`];
+    sfBody.innerHTML = rows
+      .map((r) => {
+        const mg = sweepMargin(r.sf);
+        const rangeTxt = r.maxPathLoss - p.fadeMargin - p.extraLoss <= 0 ? 'no link' : dist(r.range);
+        const mgTxt = mg === null ? '—' : signed(mg);
+        const badge = mg === null ? '' : mg < 0 ? ' <span class="badge badge--error">no link</span>' : mg < p.fadeMargin ? ' <span class="badge badge--warn">low</span>' : '';
+        tsv.push([`SF${r.sf}`, db(r.requiredSnr), db(r.sensitivity), db(r.maxPathLoss), rangeTxt, mgTxt].join('\t'));
+        return (
+          `<tr${r.sf === p.sf ? ' class="is-current"' : ''}><td class="mono">SF${r.sf}</td>` +
+          `<td class="num">${db(r.requiredSnr)} dB</td><td class="num">${db(r.sensitivity)} dBm</td>` +
+          `<td class="num">${db(r.maxPathLoss)} dB</td><td class="num">${esc(rangeTxt)}</td>` +
+          `<td class="num">${esc(mgTxt)}${mg === null ? '' : ' dB'}${badge}</td></tr>`
+        );
+      })
+      .join('');
+    sfCopy.dataset.copyText = tsv.join('\n');
+  });
+</script>

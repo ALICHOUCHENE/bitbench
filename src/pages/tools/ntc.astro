@@ -1,0 +1,459 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'J. S. Steinhart & S. R. Hart, "Calibration curves for thermistors", Deep-Sea Research 15 (1968) 497–503',
+    href: 'https://doi.org/10.1016/0011-7471(68)90057-0',
+  },
+  { title: 'Texas Instruments SBAA338: A Basic Guide to Thermistor Linearization', href: 'https://www.ti.com/lit/an/sbaa338/sbaa338.pdf' },
+  { title: 'TDK/EPCOS: NTC thermistors — general technical information (B value definitions, dissipation constant)' },
+  { title: 'BIPM SI Brochure, 9th ed. (2019) — T/°C = T/K − 273.15' },
+];
+---
+
+<ToolLayout slug="ntc" references={references}>
+  <form id="ntc-form" novalidate>
+  <div class="tool-grid">
+    <div class="panel">
+      <h2 class="panel-title">Thermistor model</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="model"
+          label="Model"
+          options={[
+            { value: 'beta', label: 'Beta (B value)' },
+            { value: 'sh', label: 'Steinhart–Hart' },
+          ]}
+        />
+      </div>
+
+      <div data-model="beta" class="fields" style="margin-top: var(--s3)">
+        <NumberInput name="r0" label="R at T0 (R25)" value="10k" unit="Ω" />
+        <NumberInput name="beta" label="B constant" value="3950" unit="K" help="Datasheets quote B25/50 or B25/85; they differ by ~1–2 %" />
+        <NumberInput name="t0" label="Reference T0" value="25" unit="°C" />
+      </div>
+
+      <div data-model="sh" hidden>
+        <div class="fields fields--wide" style="margin-top: var(--s3)">
+          <Segmented
+            name="shsrc"
+            label="Coefficients from"
+            options={[
+              { value: 'points', label: 'Three (T, R) points' },
+              { value: 'coef', label: 'Known A, B, C' },
+            ]}
+          />
+        </div>
+        <div data-shsrc="points" class="points" style="margin-top: var(--s3)">
+          <NumberInput name="p1t" label="T1" value="0" unit="°C" />
+          <NumberInput name="p1r" label="R1" value="33.62k" unit="Ω" />
+          <NumberInput name="p2t" label="T2" value="25" unit="°C" />
+          <NumberInput name="p2r" label="R2" value="10k" unit="Ω" />
+          <NumberInput name="p3t" label="T3" value="85" unit="°C" />
+          <NumberInput name="p3r" label="R3" value="1.087k" unit="Ω" />
+        </div>
+        <div data-shsrc="coef" class="fields" style="margin-top: var(--s3)" hidden>
+          <NumberInput name="sha" label="A" value="1.022285e-3" inputmode="text" />
+          <NumberInput name="shb" label="B" value="2.531646e-4" inputmode="text" />
+          <NumberInput name="shc" label="C" value="0" inputmode="text" />
+        </div>
+        <p class="help">Take the points from the R–T table in the datasheet, spread across the range you care about.</p>
+      </div>
+
+      <h2 class="panel-title" style="margin-top: var(--s5)">Convert</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="dir"
+          label="Known quantity"
+          options={[
+            { value: 'temp', label: 'Temperature' },
+            { value: 'res', label: 'Resistance' },
+            { value: 'code', label: 'ADC code' },
+          ]}
+        />
+      </div>
+      <div class="fields" style="margin-top: var(--s3)">
+        <div data-dir="temp"><NumberInput name="tin" label="Temperature" value="25" unit="°C" /></div>
+        <div data-dir="res" hidden><NumberInput name="rin" label="NTC resistance" value="10k" unit="Ω" /></div>
+        <div data-dir="code" hidden><NumberInput name="cin" label="ADC code" value="2048" unit="code" inputmode="numeric" /></div>
+      </div>
+
+      <h2 class="panel-title" style="margin-top: var(--s5)">Divider and ADC</h2>
+      <div class="fields fields--wide">
+        <Segmented
+          name="pos"
+          label="NTC position"
+          options={[
+            { value: 'bottom', label: 'Bottom (to GND)' },
+            { value: 'top', label: 'Top (to supply)' },
+          ]}
+        />
+      </div>
+      <div class="fields" style="margin-top: var(--s3)">
+        <NumberInput name="rf" label="Fixed resistor" value="10k" unit="Ω" />
+        <NumberInput name="vs" label="Divider supply" value="3.3" unit="V" />
+        <NumberInput name="vref" label="ADC Vref" value="3.3" unit="V" help="Same rail as the supply = ratiometric" />
+        <NumberInput name="bits" label="ADC resolution" value="12" unit="bit" inputmode="numeric" />
+        <NumberInput name="dc" label="Dissipation constant" value="" unit="mW/°C" placeholder="optional" help="From the datasheet, for self-heating" />
+      </div>
+    </div>
+
+    <section class="panel" aria-labelledby="ntc-results">
+      <h2 class="panel-title" id="ntc-results">Results</h2>
+      <dl class="results">
+        <ResultRow label="Temperature" name="t" unit="°C" primary />
+        <ResultRow label="Temperature" name="tk" unit="K" />
+        <ResultRow label="NTC resistance" name="r" />
+        <ResultRow label="Sensitivity (1/R · dR/dT)" name="alpha" unit="%/°C" />
+        <ResultRow label="Divider output" name="vout" />
+        <ResultRow label="ADC code" name="code" />
+        <ResultRow label="ADC resolution at this temperature" name="cpd" unit="codes/°C" />
+        <ResultRow label="Power in the NTC" name="pn" />
+        <ResultRow label="Self-heating error" name="dt" />
+      </dl>
+      <div data-model="sh" hidden>
+        <h3 class="sub">Steinhart–Hart coefficients</h3>
+        <dl class="results">
+          <ResultRow label="A" name="ca" />
+          <ResultRow label="B" name="cb" />
+          <ResultRow label="C" name="cc" />
+          <ResultRow label="Equivalent B between T1 and T2" name="b12" unit="K" />
+          <ResultRow label="Equivalent B between T2 and T3" name="b23" unit="K" />
+        </dl>
+      </div>
+      <p class="note">ADC codes use the Vref / 2ᴺ convention, rounded to nearest and clamped to 0 … 2ᴺ − 1.</p>
+    </section>
+  </div>
+
+  <section class="section" aria-labelledby="table-title">
+    <h2 id="table-title">Temperature table</h2>
+    <div id="tbl-form" class="fields">
+      <NumberInput name="tmin" label="From" value="-40" unit="°C" />
+      <NumberInput name="tmax" label="To" value="125" unit="°C" />
+      <NumberInput name="tstep" label="Step" value="5" unit="°C" />
+    </div>
+    <div class="table-wrap" style="margin-top: var(--s3); max-height: 28rem">
+      <table class="data">
+        <thead>
+          <tr><th class="num">T (°C)</th><th class="num">R (Ω)</th><th class="num">Vout (V)</th><th class="num">ADC code</th></tr>
+        </thead>
+        <tbody id="tbl-body"></tbody>
+      </table>
+    </div>
+    <CodeOutput name="ccode" label="C lookup table (ADC code → 0.1 °C)" />
+  </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>T[K] = T[°C] + 273.15
+
+Beta:            R(T) = R0 · exp(B · (1/T − 1/T0))
+                 1/T  = 1/T0 + ln(R/R0) / B
+B from 2 points: B    = ln(R1/R2) / (1/T1 − 1/T2)
+
+Steinhart–Hart:  1/T  = A + B·ln R + C·(ln R)³
+Inverse (x = ln R):  y = (A − 1/T) / (2C),  s = √((B/(3C))³ + y²)
+                     x = ∛(s − y) − ∛(s + y)
+Coefficients: solve the 3×3 system [1  ln Rᵢ  (ln Rᵢ)³]·[A B C]ᵀ = 1/Tᵢ
+
+Divider, NTC at bottom: Vout = Vs · R / (R + Rfix)
+Divider, NTC at top:    Vout = Vs · Rfix / (R + Rfix)
+ADC code = round(Vout / Vref · 2ᴺ)
+Self-heating: P = (Vs / (R + Rfix))² · R,   ΔT = P / δ</pre>
+    <p>
+      The generated C function finds the table segment by binary search and interpolates linearly between entries.
+      For a 10 kΩ / B3950 NTC with a 10 kΩ bottom resistor and 5 °C steps, the interpolation error is about 0.01 °C
+      around 25 °C and about 0.06 °C near 0 °C, rising to about 0.18 °C between −40 and −35 °C where the curve bends
+      most. ADC quantisation comes on top of that. Use smaller steps if you need better accuracy at the ends.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Choosing a thermistor model</h2>
+    <p>
+      The <strong>Beta model</strong> needs only R25 and B from the front page of the datasheet. It is exact at the two
+      temperatures B was measured at, and usually within a fraction of a degree between them. Outside that span the
+      error grows, often past 1 °C at −40 °C or 125 °C. Check which B the datasheet quotes: B25/50 and B25/85
+      for the same part typically differ by 1–2 %, and "3950" from one vendor is not the same curve as "3950" from
+      another. If you know resistances at two temperatures, the equivalent B shown above lets you compare them.
+    </p>
+    <p>
+      <strong>Steinhart–Hart</strong> adds a cubic term and, fitted through three points from the datasheet's R–T table
+      (for example the bottom, middle and top of your range), tracks the real curve to about 0.1 °C or better across
+      100 °C or more. The fit is only as good as the points: take them from the manufacturer's table, not from a Beta
+      approximation. Points from a Beta curve give C ≈ 0, which is the Beta model again.
+    </p>
+    <h3>Designing the divider</h3>
+    <p>
+      For the best resolution where it matters, make the fixed resistor equal to the NTC resistance at the centre of
+      your range of interest. A 10 kΩ fixed resistor gives the steepest response around 25 °C. The "ADC resolution"
+      result shows how many codes you get per degree at the selected temperature. When it drops below about 10
+      codes/°C, quantisation becomes visible.
+    </p>
+    <p>
+      Feed the divider from the same rail as the ADC reference. The code is then <code>2ᴺ · R / (R + Rfix)</code>, independent of the supply voltage, and supply tolerance drops out completely.
+      With a separate reference, every percent of supply error shows up in the reading.
+    </p>
+    <p>
+      Watch self-heating. The current through the divider warms the thermistor, and the dissipation constant
+      (mW/°C, in the datasheet, usually given for still air) tells you by how much. Small SMD parts on a PCB can heat
+      a few tenths of a degree at 3.3 V with 10 kΩ. Higher resistances, or powering the divider from a GPIO only while
+      sampling, fix this. The divider also sets the source impedance the ADC sees: Rfix ∥ R_NTC. If it is high, add a
+      capacitor at the pin or lengthen the sampling time (see the <a href={toolUrl('adc')}>ADC calculator</a>).
+    </p>
+    <h3>Using the lookup table</h3>
+    <p>
+      Evaluating <code>log()</code> on a small MCU is often fine, but a table is deterministic and fast. The generated
+      table maps raw ADC codes to temperature in tenths of a degree with integer arithmetic only. Regenerate it whenever
+      you change the fixed resistor, the NTC position or the ADC resolution. Outside the table range the function
+      clamps to the end temperatures, so make the range wide enough to catch a disconnected or shorted sensor as
+      a plausibility error.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<style>
+  /* .fields / .panel set display, which would override the hidden attribute. */
+  [hidden] {
+    display: none !important;
+  }
+  .sub {
+    font-size: var(--text-sm);
+    font-weight: 650;
+    margin: var(--s4) 0 0;
+  }
+  .points {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3);
+  }
+  #tbl-form {
+    max-width: 36rem;
+  }
+</style>
+
+<script>
+  import { bindForm, setError, setResult, clearResults, esc } from '../../scripts/tool-client';
+  import { formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import {
+    adcLsb,
+    adcMaxCode,
+    cToK,
+    ntcBetaFromPoints,
+    ntcBetaResistance,
+    ntcBetaTemperature,
+    ntcCTable,
+    ntcDividerVout,
+    ntcResistanceFromVout,
+    ntcTable,
+    shFromPoints,
+    shResistance,
+    shTemperature,
+    tempRange,
+    type NtcPosition,
+  } from '../../lib/analog';
+
+  const MAIN = ['t', 'tk', 'r', 'alpha', 'vout', 'code', 'cpd', 'pn', 'dt'];
+  const COEF = ['ca', 'cb', 'cc', 'b12', 'b23'];
+  const MAX_ROWS = 400;
+
+  interface Model {
+    rOfT: (t: number) => number;
+    tOfR: (r: number) => number;
+    desc: string;
+  }
+  interface Setup {
+    pos: NtcPosition;
+    rf: number;
+    vs: number;
+    vref: number;
+    bits: number;
+  }
+  let model: Model | null = null;
+  let setup: Setup | null = null;
+  let current: number | null = null;
+  let tblValues: Record<string, string> = {};
+
+  function num(name: string, raw: string, label: string, opts: { positive?: boolean; optional?: boolean } = {}): number | null {
+    if (opts.optional && raw.trim() === '') return setError(name, null), null;
+    const v = parseNumber(raw);
+    if (v === null) return setError(name, `${label} must be a number.`), null;
+    if (opts.positive && v <= 0) return setError(name, `${label} must be greater than zero.`), null;
+    setError(name, null);
+    return v;
+  }
+  function temp(name: string, raw: string, label: string): number | null {
+    const v = num(name, raw, label);
+    if (v !== null && v <= -273.15) return setError(name, `${label} must be above absolute zero (−273.15 °C).`), null;
+    return v;
+  }
+  const toggle = (attr: string, value: string) =>
+    document.querySelectorAll<HTMLElement>(`[data-${attr}]`).forEach((el) => (el.hidden = el.dataset[attr] !== value));
+
+  function buildModel(v: Record<string, string>): Model | null {
+    if (v.model === 'beta') {
+      clearResults(...COEF);
+      const r0 = num('r0', v.r0, 'R0', { positive: true });
+      const b = num('beta', v.beta, 'B constant', { positive: true });
+      const t0 = temp('t0', v.t0, 'T0');
+      if (r0 === null || b === null || t0 === null) return null;
+      return {
+        rOfT: (t) => ntcBetaResistance(t, r0, b, t0),
+        tOfR: (r) => ntcBetaTemperature(r, r0, b, t0),
+        desc: `Beta model: R0 = ${formatSI(r0, 'Ω')} at ${t0} °C, B = ${b} K`,
+      };
+    }
+    let k: { a: number; b: number; c: number } | null = null;
+    if (v.shsrc === 'points') {
+      const pts: [number, number][] = [];
+      let ok = true;
+      for (const i of [1, 2, 3]) {
+        const t = temp(`p${i}t`, v[`p${i}t`], `T${i}`);
+        const r = num(`p${i}r`, v[`p${i}r`], `R${i}`, { positive: true });
+        if (t === null || r === null) ok = false;
+        else pts.push([t, r]);
+      }
+      if (!ok) return clearResults(...COEF), null;
+      try {
+        k = shFromPoints(pts);
+      } catch (e) {
+        setError('p3t', (e as Error).message);
+        return clearResults(...COEF), null;
+      }
+      setResult('b12', formatNumber(ntcBetaFromPoints(pts[0][0], pts[0][1], pts[1][0], pts[1][1]), 6));
+      setResult('b23', formatNumber(ntcBetaFromPoints(pts[1][0], pts[1][1], pts[2][0], pts[2][1]), 6));
+    } else {
+      const a = num('sha', v.sha, 'A');
+      const b = num('shb', v.shb, 'B', { positive: true });
+      const c = num('shc', v.shc, 'C');
+      if (a === null || b === null || c === null) return clearResults(...COEF), null;
+      k = { a, b, c };
+      clearResults('b12', 'b23');
+    }
+    setResult('ca', k.a.toExponential(9));
+    setResult('cb', k.b.toExponential(9));
+    setResult('cc', k.c.toExponential(9));
+    const kk = k;
+    return {
+      rOfT: (t) => shResistance(t, kk),
+      tOfR: (r) => shTemperature(r, kk),
+      desc: `Steinhart-Hart: A = ${kk.a.toExponential(9)}, B = ${kk.b.toExponential(9)}, C = ${kk.c.toExponential(9)}`,
+    };
+  }
+
+  bindForm('ntc-form', (v) => {
+    toggle('model', v.model);
+    toggle('shsrc', v.shsrc);
+    toggle('dir', v.dir);
+
+    model = buildModel(v);
+    const rf = num('rf', v.rf, 'Fixed resistor', { positive: true });
+    const vs = num('vs', v.vs, 'Divider supply', { positive: true });
+    const vref = num('vref', v.vref, 'ADC Vref', { positive: true });
+    const dc = num('dc', v.dc, 'Dissipation constant', { positive: true, optional: true });
+    let bits: number | null = null;
+    const bRaw = parseNumber(v.bits);
+    if (bRaw === null || !Number.isInteger(bRaw) || bRaw < 8 || bRaw > 24) setError('bits', 'Resolution must be a whole number from 8 to 24.');
+    else (setError('bits', null), (bits = bRaw));
+    const pos = v.pos as NtcPosition;
+    setup = rf !== null && vs !== null && vref !== null && bits !== null ? { pos, rf, vs, vref, bits } : null;
+
+    tblValues = v;
+    current = null;
+    renderTable();
+    if (!model) return clearResults(...MAIN);
+
+    // Resolve the operating point (T, R).
+    let t: number | null = null;
+    let r: number | null = null;
+    if (v.dir === 'temp') {
+      t = temp('tin', v.tin, 'Temperature');
+      if (t !== null) r = model.rOfT(t);
+    } else if (v.dir === 'res') {
+      r = num('rin', v.rin, 'Resistance', { positive: true });
+      if (r !== null) t = model.tOfR(r);
+    } else {
+      const c = parseNumber(v.cin);
+      if (!setup) clearResults(...MAIN);
+      else if (c === null || !Number.isInteger(c) || c < 0 || c > adcMaxCode(setup.bits)) {
+        setError('cin', `ADC code must be a whole number from 0 to ${adcMaxCode(setup.bits)}.`);
+      } else {
+        const vout = c * adcLsb(setup.vref, setup.bits);
+        const rr = ntcResistanceFromVout(vout, setup.rf, setup.vs, setup.pos);
+        if (Number.isNaN(rr)) {
+          setError('cin', `Code ${c} means ${formatSI(vout, 'V')}, outside 0 … ${formatSI(setup.vs, 'V')} (exclusive): sensor open or shorted.`);
+        } else {
+          setError('cin', null);
+          r = rr;
+          t = model.tOfR(rr);
+        }
+      }
+    }
+    if (t === null || r === null || !Number.isFinite(t) || !Number.isFinite(r)) return clearResults(...MAIN);
+
+    current = t;
+    renderTable();
+    setResult('t', formatNumber(t, 5));
+    setResult('tk', formatNumber(cToK(t), 6));
+    setResult('r', formatSI(r, 'Ω', 6));
+    const h = 0.01;
+    const dR = (model.rOfT(t + h) - model.rOfT(t - h)) / (2 * h);
+    setResult('alpha', formatNumber((dR / r) * 100, 4));
+
+    if (!setup) return clearResults('vout', 'code', 'cpd', 'pn', 'dt');
+    const s = setup;
+    const vout = ntcDividerVout(r, s.rf, s.vs, s.pos);
+    const lsb = adcLsb(s.vref, s.bits);
+    const code = Math.max(0, Math.min(adcMaxCode(s.bits), Math.round(vout / lsb)));
+    setResult('vout', formatSI(vout, 'V', 6));
+    setResult('code', vout > s.vref ? `${code} (above Vref, saturated)` : String(code));
+    const dV = (ntcDividerVout(model.rOfT(t + h), s.rf, s.vs, s.pos) - ntcDividerVout(model.rOfT(t - h), s.rf, s.vs, s.pos)) / (2 * h);
+    setResult('cpd', formatNumber(Math.abs(dV / lsb), 4));
+    const i = s.vs / (r + s.rf);
+    const p = i * i * r;
+    setResult('pn', formatSI(p, 'W'));
+    setResult('dt', dc === null ? 'enter δ' : `${formatNumber(p / (dc * 1e-3), 3)} °C`);
+  });
+
+
+  function renderTable() {
+    const body = document.getElementById('tbl-body');
+    if (!body || !tblValues.tmin) return;
+    const tmin = temp('tmin', tblValues.tmin, 'Start temperature');
+    const tmax = temp('tmax', tblValues.tmax, 'End temperature');
+    const step = num('tstep', tblValues.tstep, 'Step', { positive: true });
+    let ok = tmin !== null && tmax !== null && step !== null;
+    if (ok && tmax! <= tmin!) ok = !setError('tmax', 'End temperature must be above the start temperature.');
+    if (ok && step! > 25) ok = !setError('tstep', 'Step must be 25 °C or less.');
+    if (ok && (tmax! - tmin!) / step! + 1 > MAX_ROWS) ok = !setError('tstep', `That gives more than ${MAX_ROWS} rows; use a larger step.`);
+    if (!ok || !model || !setup) {
+      body.innerHTML = '';
+      setResult('ccode', '—');
+      return;
+    }
+    const s = setup;
+    const rows = ntcTable(tempRange(tmin!, tmax!, step!), model.rOfT, s.rf, s.vs, s.pos, s.vref, s.bits);
+    const near = current === null ? null : rows.reduce((a, b) => (Math.abs(b.tC - current!) < Math.abs(a.tC - current!) ? b : a));
+    body.innerHTML = rows
+      .map(
+        (row) =>
+          `<tr${row === near ? ' class="is-current"' : ''}><td class="num">${esc(formatNumber(row.tC, 6))}</td><td class="num">${esc(
+            formatNumber(row.r, 6),
+          )}</td><td class="num">${esc(row.vout.toFixed(4))}</td><td class="num">${row.code}</td></tr>`,
+      )
+      .join('');
+    const header = [
+      `NTC lookup table generated by BitBench (${location.origin}${location.pathname})`,
+      model.desc,
+      `Divider: NTC at ${s.pos === 'bottom' ? 'bottom (to GND)' : 'top (to supply)'}, Rfix = ${formatSI(s.rf, 'Ω')}, supply ${s.vs} V`,
+      `ADC: ${s.bits} bit, Vref ${s.vref} V, code = round(Vout / Vref * 2^${s.bits})`,
+    ].join('\n');
+    setResult('ccode', ntcCTable(rows, s.bits, header));
+  }
+</script>

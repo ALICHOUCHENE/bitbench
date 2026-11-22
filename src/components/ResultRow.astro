@@ -1,0 +1,28 @@
+---
+// One line of the readout. Place inside <dl class="results">. Fill with setResult(name, text).
+interface Props {
+  label: string;
+  name: string;
+  unit?: string;
+  /** Larger, accent-coloured value for the main answer. */
+  primary?: boolean;
+  help?: string;
+  /** Extra attributes (e.g. data-when="…") go on the row element. */
+  [attr: `data-${string}`]: string | undefined;
+}
+
+const { label, name, unit, primary = false, help, ...rest } = Astro.props;
+const id = `r-${name}`;
+---
+
+<div class:list={['result', { 'result--primary': primary }]} {...rest}>
+  <dt>
+    {label}
+    {help && <span class="visually-hidden">: {help}</span>}
+  </dt>
+  <dd>
+    <output id={id} data-result={name} aria-live="polite">—</output>
+    {unit && <span class="unit">{unit}</span>}
+    <button class="copy-btn" type="button" data-copy={`#${id}`} aria-label={`Copy ${label}`}>Copy</button>
+  </dd>
+</div>

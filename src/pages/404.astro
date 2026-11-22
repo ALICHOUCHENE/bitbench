@@ -1,0 +1,12 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { url } from '../utils/paths';
+---
+
+<BaseLayout title="Page not found" description="This page does not exist.">
+  <div class="prose">
+    <h1>404 — address not mapped</h1>
+    <p>That page doesn't exist. It may have moved, or the link has a typo.</p>
+    <p><a href={url('/')}>Back to all tools</a></p>
+  </div>
+</BaseLayout>

@@ -1,0 +1,530 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import SelectInput from '../../components/SelectInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import Toggle from '../../components/Toggle.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { LSI_PRESETS } from '../../lib/watchdog';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'ST RM0360 — STM32F030/F070 reference manual',
+    note: '§19 Independent watchdog (IWDG) with window option (writing WINR reloads the counter), System window watchdog (WWDG) timeout formula',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0360-stm32f030x4x6x8xc-and-stm32f070x6xb-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  {
+    title: 'ST RM0351 — STM32L4 reference manual',
+    note: 'IWDG with window and freeze-in-Stop/Standby option bytes; WWDG',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0351-stm32l47xxx-stm32l48xxx-stm32l49xxx-and-stm32l4axxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  {
+    title: 'ST RM0090 — STM32F405/407/427/429 reference manual',
+    note: 'IWDG without window register, WWDG',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0090-stm32f405415-stm32f407417-stm32f427437-and-stm32f429439-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  {
+    title: 'ST DS9773 — STM32F030x4/6/8/C datasheet',
+    note: 'Table 37 LSI 30–50 kHz, Table 55 IWDG min/max timeout at 40 kHz, Table 56 WWDG min/max timeout at 48 MHz',
+  },
+  {
+    title: 'LSI oscillator characteristics in the device datasheets',
+    note: 'F303 DS9118, F103x8/B, F205 DS6329, F407 DS8626, F746, L476, G071 DS12232, G474 DS12288 (32 kHz is nominal on L4/G0/G4; no typical value is given)',
+  },
+];
+
+const timeUnits = [
+  { value: 's', label: 's' },
+  { value: 'ms', label: 'ms' },
+  { value: 'us', label: 'µs' },
+];
+const presetOptions = [...LSI_PRESETS.map((p) => ({ value: p.id, label: p.label })), { value: 'custom', label: 'Custom' }];
+const prOptions = Array.from({ length: 9 }, (_, pr) => ({ value: String(pr), label: `${pr} — LSI / ${4 * 2 ** pr}` }));
+const tbOptions = Array.from({ length: 8 }, (_, tb) => ({ value: String(tb), label: `${tb} — PCLK / ${4096 * 2 ** tb}` }));
+---
+
+<ToolLayout slug="watchdog" references={references}>
+  <form id="wd-form" novalidate>
+    <div class="tool-grid">
+      <div class="panel">
+        <h2 class="panel-title">Inputs</h2>
+        <div class="fields fields--wide">
+          <Segmented
+            name="wd"
+            label="Watchdog"
+            options={[
+              { value: 'iwdg', label: 'IWDG (independent)' },
+              { value: 'wwdg', label: 'WWDG (window)' },
+            ]}
+          />
+          <Segmented
+            name="mode"
+            label="Calculate"
+            options={[
+              { value: 'target', label: 'Registers from timeout' },
+              { value: 'regs', label: 'Timeout from registers' },
+            ]}
+          />
+        </div>
+
+        <div data-wd="iwdg">
+          <div class="fields" style="margin-top: var(--s4)">
+            <SelectInput name="preset" label="Family (LSI)" value="f0" options={presetOptions} />
+            <NumberInput name="lsi" label="LSI typical" value="40" unit="kHz" />
+            <NumberInput name="lsiMin" label="LSI minimum" value="30" unit="kHz" />
+            <NumberInput name="lsiMax" label="LSI maximum" value="50" unit="kHz" />
+          </div>
+          <div class="fields" style="margin-top: var(--s4)">
+            <Toggle name="win" label="IWDG has a window register (WINR)" checked help="F0, F3, F7, L4, G0, G4, H7, U5… not F1, F2, F4" />
+            <Toggle name="pr4" label="4-bit prescaler (÷512, ÷1024)" help="Newer IWDG, e.g. STM32U5, H5" />
+          </div>
+          <div class="fields" style="margin-top: var(--s4)" data-mode="target">
+            <NumberInput name="t" label="Target timeout" value="1" units={timeUnits} unitValue="s" />
+            <NumberInput name="early" label="Earliest refresh (window)" value="" units={timeUnits} unitValue="ms" placeholder="no window" help="Refreshing sooner than this resets" />
+            <Toggle name="guar" label="Guarantee the timeout at the fastest LSI" help="Never shorter than the target over the LSI range" />
+          </div>
+          <div class="fields" style="margin-top: var(--s4)" data-mode="regs" hidden>
+            <SelectInput name="pr" label="IWDG_PR" value="3" options={prOptions} />
+            <NumberInput name="rl" label="IWDG_RLR" value="999" inputmode="text" help="0 … 0xFFF, decimal or hex" />
+            <NumberInput name="winr" label="IWDG_WINR" value="" inputmode="text" placeholder="0xFFF" help="Empty or 0xFFF: no window" />
+          </div>
+        </div>
+
+        <div data-wd="wwdg" hidden>
+          <div class="fields" style="margin-top: var(--s4)">
+            <NumberInput name="pclk" label="WWDG clock (PCLK)" value="48" unit="MHz" help="The APB clock that feeds the WWDG" />
+            <Toggle name="tb3" label="3-bit WDGTB (÷1 … ÷128)" help="e.g. STM32G0, G4, H7, U5, H5" />
+          </div>
+          <div class="fields" style="margin-top: var(--s4)" data-mode="target">
+            <NumberInput name="wt" label="Target timeout" value="40" units={timeUnits} unitValue="ms" />
+            <NumberInput name="wearly" label="Earliest refresh (window)" value="" units={timeUnits} unitValue="ms" placeholder="no window" help="Refreshing sooner than this resets" />
+          </div>
+          <div class="fields" style="margin-top: var(--s4)" data-mode="regs" hidden>
+            <SelectInput name="tb" label="WDGTB" value="3" options={tbOptions} />
+            <NumberInput name="wcnt" label="Counter T[6:0]" value="0x7F" inputmode="text" help="0x40 … 0x7F" />
+            <NumberInput name="wwin" label="Window W[6:0]" value="0x7F" inputmode="text" help="0x7F: no window" />
+          </div>
+        </div>
+      </div>
+
+      <section class="panel" aria-labelledby="wd-results">
+        <h2 class="panel-title" id="wd-results">Result <span id="exact-badge" class="badge badge--ok" hidden>exact</span></h2>
+        <dl class="results" data-wd="iwdg">
+          <ResultRow label="Timeout (typical LSI)" name="iTimeout" primary />
+          <ResultRow label="IWDG_PR" name="iPr" />
+          <ResultRow label="IWDG_RLR" name="iRl" />
+          <ResultRow label="IWDG_WINR" name="iWinr" />
+          <ResultRow label="Counter tick" name="iTick" />
+          <ResultRow label="Timeout over LSI range" name="iRange" help="Fastest LSI → slowest LSI" />
+          <ResultRow label="Window opens after" name="iOpen" help="Typical, and latest at the slowest LSI" />
+          <ResultRow label="Safe refresh interval" name="iSafe" help="Valid at any LSI in the range" />
+        </dl>
+        <dl class="results" data-wd="wwdg" hidden>
+          <ResultRow label="Timeout" name="wTimeout" primary />
+          <ResultRow label="WDGTB" name="wTb" />
+          <ResultRow label="Counter T[6:0]" name="wT" />
+          <ResultRow label="Window W[6:0]" name="wW" />
+          <ResultRow label="Counter tick" name="wTick" />
+          <ResultRow label="Refresh allowed" name="wSafe" help="From the window opening to the reset" />
+          <ResultRow label="Early wakeup interrupt" name="wEwi" help="At counter = 0x40, one tick before reset" />
+        </dl>
+        <p class="note note--warn" id="warn-note" hidden></p>
+      </section>
+    </div>
+
+    <section class="section" aria-labelledby="opt-title" id="opt-section">
+      <h2 id="opt-title">Every prescaler</h2>
+      <p class="help" id="opt-help">The highlighted row is used above: the smallest error, then the finest tick.</p>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr>
+              <th id="opt-code">PR</th>
+              <th class="num">Divider</th>
+              <th class="num">Tick</th>
+              <th class="num">Min timeout</th>
+              <th class="num">Max timeout</th>
+              <th class="num" id="opt-reload">RLR</th>
+              <th class="num">Timeout</th>
+              <th class="num">Error</th>
+            </tr>
+          </thead>
+          <tbody id="opt-rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <CodeOutput name="code" label="C initialisation" />
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>IWDG   tick     = 4 · 2^PR / f_LSI                (PR 0…6 → ÷4…÷256; 0…8 → ÷1024 on newer parts)
+       timeout  = tick · (RL + 1)                  RL = IWDG_RLR, 0 … 0xFFF
+       window   = opens tick · (RL − WINR) after a refresh   (WINR = 0xFFF: no window)
+
+WWDG   tick     = 4096 · 2^WDGTB / f_PCLK          (WDGTB 0…3, or 0…7 on 3-bit parts)
+       timeout  = tick · (T[5:0] + 1)              T = 0x40 … 0x7F, reset when T6 clears
+       window   = opens tick · (T − W) after a refresh       (W = 0x7F: no window)
+       EWI      = tick · (T − 0x40)                one tick before the reset
+
+Over the LSI range (IWDG):
+  shortest timeout = 4 · 2^PR · (RL + 1) / f_LSI,max
+  latest window    = 4 · 2^PR · (RL − WINR) / f_LSI,min
+  safe refresh     = latest window … shortest timeout</pre>
+    <p>
+      For each prescaler the tool picks the reload value closest to the target (or the next one up when the timeout
+      must be guaranteed), then keeps the prescaler with the smallest error. Ties go to the smaller prescaler,
+      because a finer tick also places the window more precisely.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Setting up the STM32 watchdogs</h2>
+    <h3>Two watchdogs, two jobs</h3>
+    <p>
+      The <strong>IWDG</strong> runs from the LSI RC oscillator, so it keeps counting if the main clock fails, and in
+      most families it can run in Stop mode. Once started it cannot be stopped except by a reset. It is the watchdog to
+      use against a hung firmware. The <strong>WWDG</strong> runs from the APB clock and has a short range, up to tens
+      of milliseconds on most parts. Its window and its early-wakeup interrupt make it useful for checking that a fast
+      control loop runs on time, neither too slow nor too fast.
+    </p>
+    <h3>The LSI is not accurate</h3>
+    <p>
+      This is the mistake that ships: the IWDG timeout is only as accurate as the LSI, and the LSI is a rough RC
+      oscillator. On an STM32F4 the datasheet allows 17 to 47 kHz around a typical 32 kHz, so an IWDG set for 1 s can
+      fire after 0.68 s or after 1.88 s. Size the refresh interval against the <em>shortest</em> timeout, which the
+      tool shows in "Timeout over LSI range", or switch on "Guarantee the timeout at the fastest LSI". Newer families
+      (L4, G0, G4) have a much tighter LSI. If you need the real frequency, many parts can route the LSI to a timer input
+      capture and measure it against the HSE.
+    </p>
+    <h3>Windows make the range problem worse</h3>
+    <p>
+      With a window, a refresh that comes too early also resets the MCU. With a slow LSI the window opens late, with a
+      fast LSI the watchdog fires early, so the safe interval is narrower than the nominal one, and on a wide-tolerance
+      LSI it can vanish. The tool warns when that happens. On IWDG parts with a window, writing IWDG_WINR also reloads
+      the counter, so write it last, after waiting for IWDG_SR to clear.
+    </p>
+    <h3>Practical points</h3>
+    <ul>
+      <li>
+        Stop the watchdogs while debugging: set DBG_IWDG_STOP and DBG_WWDG_STOP in the DBGMCU freeze register, or every
+        breakpoint ends in a reset.
+      </li>
+      <li>
+        The IWDG_SW option bit selects a hardware watchdog that starts by itself at reset. Some families also have option
+        bits to freeze the IWDG in Stop and Standby (IWDG_STOP, IWDG_STDBY). Without them, a device that sleeps for longer
+        than the timeout has to wake up just to refresh.
+      </li>
+      <li>
+        Read RCC_CSR (IWDGRSTF, WWDGRSTF) at boot to know whether the last reset came from a watchdog, then clear the flags
+        with RMVF.
+      </li>
+      <li>
+        Do not refresh from a timer interrupt: it keeps running while the main loop is stuck. Refresh from the main loop,
+        ideally only after every task has reported in.
+      </li>
+      <li>
+        A bootloader that starts the IWDG leaves it running in the application, which must then refresh it from its first
+        instructions. This matters for a secure bootloader that checks a signature before
+        jumping: the check has to finish within the timeout.
+      </li>
+    </ul>
+    <p>
+      For ordinary periodic timers on the same parts, see the <a href={toolUrl('mcu-timer')}>timer prescaler calculator</a>.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<script>
+  import { bindForm, clearResults, setError, setResult, show } from '../../scripts/tool-client';
+  import { applyUnit, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import {
+    IWDG_RL_MAX,
+    IWDG_WINR_DISABLED,
+    LSI_PRESETS,
+    WWDG_T_MAX,
+    WWDG_T_MIN,
+    iwdgReport,
+    iwdgWindow,
+    parseRegister,
+    solveIwdg,
+    solveWwdg,
+    wwdgReport,
+    wwdgWindow,
+    type WatchdogSolution,
+  } from '../../lib/watchdog';
+
+  const TIME: Record<string, number> = { s: 1, ms: 1e-3, us: 1e-6 };
+  const I_RESULTS = ['iTimeout', 'iPr', 'iRl', 'iWinr', 'iTick', 'iRange', 'iOpen', 'iSafe'];
+  const W_RESULTS = ['wTimeout', 'wTb', 'wT', 'wW', 'wTick', 'wSafe', 'wEwi'];
+  const ALL_ERRORS = ['lsi', 'lsiMin', 'lsiMax', 't', 'early', 'rl', 'winr', 'pr', 'pclk', 'wt', 'wearly', 'wcnt', 'wwin', 'tb'];
+
+  const form = document.getElementById('wd-form') as HTMLFormElement;
+  const rows = document.getElementById('opt-rows')!;
+  const warn = document.getElementById('warn-note')!;
+  const field = (n: string) => form.elements.namedItem(n) as HTMLInputElement | HTMLSelectElement;
+
+  const hex = (v: number, digits: number) => `0x${v.toString(16).toUpperCase().padStart(digits, '0')}`;
+  const s = (x: number) => formatSI(x, 's', 5);
+  const signedPct = (e: number) => (e === 0 ? '0 %' : `${e > 0 ? '+' : ''}${formatNumber(e * 100, 3)} %`);
+
+  function positive(name: string, raw: string, label: string, mult = 1): number | null {
+    const v = parseNumber(raw);
+    if (v === null) return setError(name, `${label} must be a number.`), null;
+    if (v <= 0) return setError(name, `${label} must be greater than zero.`), null;
+    setError(name, null);
+    return applyUnit(raw, v, mult);
+  }
+
+  /** Optional time: empty → 0. */
+  function optionalTime(name: string, raw: string, unit: string): number | null {
+    if (raw.trim() === '') return setError(name, null), 0;
+    const v = parseNumber(raw);
+    if (v === null || v < 0) return setError(name, 'Enter a time of zero or more, or leave empty.'), null;
+    setError(name, null);
+    return applyUnit(raw, v, TIME[unit] ?? 1);
+  }
+
+  function register(name: string, raw: string, min: number, max: number, label: string, fallback?: number): number | null {
+    if (raw.trim() === '' && fallback !== undefined) return setError(name, null), fallback;
+    const v = parseRegister(raw);
+    if (v === null || v < min || v > max) return setError(name, `${label} must be an integer from ${hex(min, 2)} to ${hex(max, 2)}.`), null;
+    setError(name, null);
+    return v;
+  }
+
+  function warnings(list: string[]) {
+    warn.innerHTML = list.join('<br />');
+    show('warn-note', list.length > 0);
+  }
+
+  function table(sol: WatchdogSolution | null, wd: 'iwdg' | 'wwdg') {
+    show('opt-section', sol !== null);
+    if (!sol) return (rows.innerHTML = '');
+    document.getElementById('opt-code')!.textContent = wd === 'iwdg' ? 'PR' : 'WDGTB';
+    document.getElementById('opt-reload')!.textContent = wd === 'iwdg' ? 'RLR' : 'T';
+    rows.innerHTML = sol.options
+      .map(
+        (o, i) => `<tr${i === sol.best ? ' class="is-current"' : ''}>
+          <td>${o.code}</td><td class="num">÷${o.divider}</td><td class="num">${s(o.tick)}</td>
+          <td class="num">${s(o.min)}</td><td class="num">${s(o.max)}</td>
+          <td class="num">${o.fits ? (wd === 'iwdg' ? o.reload : hex(o.reload, 2)) : '—'}</td>
+          <td class="num">${o.fits ? s(o.timeout) : 'out of range'}</td>
+          <td class="num">${o.fits ? signedPct(o.error) : '—'}</td></tr>`,
+      )
+      .join('');
+  }
+
+  function empty() {
+    clearResults(...I_RESULTS, ...W_RESULTS, 'code');
+    show('exact-badge', false);
+    table(null, 'iwdg');
+  }
+
+  function runIwdg(v: Record<string, string>, mode: string) {
+    const lsi = positive('lsi', v.lsi, 'LSI typical', 1e3);
+    const lsiMin = positive('lsiMin', v.lsiMin, 'LSI minimum', 1e3);
+    const lsiMax = positive('lsiMax', v.lsiMax, 'LSI maximum', 1e3);
+    if (lsi === null || lsiMin === null || lsiMax === null) return empty();
+    if (lsiMin > lsi || lsiMax < lsi) {
+      setError('lsiMin', 'Minimum ≤ typical ≤ maximum.');
+      return empty();
+    }
+    const hasWin = v.win === '1';
+    const prCodes = v.pr4 === '1' ? 9 : 7;
+    const notes: string[] = [];
+    let pr: number;
+    let rl: number;
+    let winr = IWDG_WINR_DISABLED;
+    let sol: WatchdogSolution | null = null;
+
+    if (mode === 'target') {
+      const target = positive('t', v.t, 'Target timeout', TIME[v.tUnit] ?? 1);
+      const early = optionalTime('early', v.early, v.earlyUnit);
+      if (target === null || early === null) return empty();
+      const guar = v.guar === '1';
+      sol = solveIwdg(guar ? lsiMax : lsi, target, prCodes, guar);
+      table(sol, 'iwdg');
+      if (sol.best < 0) {
+        const max = sol.options[sol.options.length - 1].max;
+        setError('t', target > max ? `Longest possible timeout here is ${s(max)}${prCodes === 7 ? ' (more with the 4-bit prescaler)' : ''}.` : `Shortest possible timeout is ${s(sol.options[0].min)}.`);
+        clearResults(...I_RESULTS, 'code');
+        show('exact-badge', false);
+        return warnings([]);
+      }
+      const best = sol.options[sol.best];
+      pr = best.code;
+      rl = best.reload;
+      show('exact-badge', best.error === 0 && !guar);
+      if (early > 0) {
+        if (!hasWin) {
+          setError('early', 'This IWDG has no window register.');
+        } else {
+          const w = iwdgWindow(lsi, pr, rl, early);
+          if (w === null) setError('early', 'The window must open before the timeout.');
+          else winr = w;
+        }
+      }
+    } else {
+      table(null, 'iwdg');
+      show('exact-badge', false);
+      pr = Number.parseInt(v.pr, 10) || 0;
+      if (pr >= prCodes) {
+        setError('pr', 'PR above 6 needs the 4-bit prescaler.');
+        return clearResults(...I_RESULTS, 'code');
+      }
+      setError('pr', null);
+      const r = register('rl', v.rl, 0, IWDG_RL_MAX, 'IWDG_RLR');
+      const w = register('winr', v.winr, 0, IWDG_WINR_DISABLED, 'IWDG_WINR', IWDG_WINR_DISABLED);
+      if (r === null || w === null) return clearResults(...I_RESULTS, 'code');
+      rl = r;
+      winr = hasWin ? w : IWDG_WINR_DISABLED;
+      if (!hasWin && w !== IWDG_WINR_DISABLED) setError('winr', 'This IWDG has no window register.');
+    }
+
+    const rep = iwdgReport(lsi, lsiMin, lsiMax, pr, rl, winr);
+    const div = 4 * 2 ** pr;
+    setResult('iTimeout', s(rep.timeout));
+    setResult('iPr', `${pr} (÷${div})`);
+    setResult('iRl', `${rl} (${hex(rl, 3)})`);
+    setResult('iWinr', !hasWin ? 'not available' : winr >= rl ? `${hex(winr, 3)} (no window)` : `${winr} (${hex(winr, 3)})`);
+    setResult('iTick', s(rep.tick));
+    setResult('iRange', `${s(rep.timeoutMin)} … ${s(rep.timeoutMax)}`);
+    setResult('iOpen', rep.windowOpen === 0 ? 'immediately (no window)' : `${s(rep.windowOpen)} (latest ${s(rep.windowOpenMax)})`);
+    setResult('iSafe', rep.safe ? `${rep.safe[0] === 0 ? '0' : s(rep.safe[0])} … ${s(rep.safe[1])}` : 'none');
+
+    if (!rep.safe) notes.push(`<strong>No refresh time is safe over the whole LSI range:</strong> at the slowest LSI the window opens after ${s(rep.windowOpenMax)}, but at the fastest the watchdog already fires after ${s(rep.timeoutMin)}. Open the window earlier or lengthen the timeout.`);
+    if (rep.timeoutMin < rep.timeout * 0.8) notes.push(`The LSI tolerance makes the timeout as short as ${s(rep.timeoutMin)}. Plan the refresh against that, not against the nominal ${s(rep.timeout)}.`);
+    warnings(notes);
+
+    const win = hasWin && winr < rl;
+    const safe = rep.safe ? `between ${rep.safe[0] === 0 ? '0' : s(rep.safe[0])} and ${s(rep.safe[1])}` : `before ${s(rep.timeoutMin)}`;
+    setResult(
+      'code',
+      `/* IWDG: LSI ${formatSI(lsi, 'Hz', 4)} / ${div}, RL = ${rl} -> ${s(rep.timeout)} typical, ${s(rep.timeoutMin)} … ${s(rep.timeoutMax)} over the LSI range */
+IWDG->KR   = 0xCCCC;          /* start the watchdog (switches the LSI on) */
+IWDG->KR   = 0x5555;          /* unlock PR, RLR${hasWin ? ' and WINR' : ''} */
+IWDG->PR   = ${pr};${' '.repeat(Math.max(1, 15 - String(pr).length))}/* LSI / ${div} */
+IWDG->RLR  = ${rl};${' '.repeat(Math.max(1, 15 - String(rl).length))}/* ${rl + 1} ticks */
+while (IWDG->SR != 0) {}      /* wait until the new values are loaded */
+${hasWin ? `IWDG->WINR = ${win ? winr : '0xFFF'};${' '.repeat(Math.max(1, 15 - (win ? String(winr).length : 5)))}/* ${win ? `window opens ${s(rep.windowOpen)} after a refresh; ` : 'no window; '}also reloads the counter */` : 'IWDG->KR   = 0xAAAA;          /* reload the counter with RLR */'}
+
+/* Refresh ${safe} after the previous one */
+IWDG->KR = 0xAAAA;
+
+/* STM32 HAL */
+hiwdg.Instance = IWDG;
+hiwdg.Init.Prescaler = IWDG_PRESCALER_${div};
+hiwdg.Init.Reload = ${rl};${hasWin ? `\nhiwdg.Init.Window = ${win ? winr : 'IWDG_WINDOW_DISABLE'};` : ''}
+HAL_IWDG_Init(&hiwdg);         /* then HAL_IWDG_Refresh(&hiwdg) */`,
+    );
+  }
+
+  function runWwdg(v: Record<string, string>, mode: string) {
+    const pclk = positive('pclk', v.pclk, 'PCLK', 1e6);
+    if (pclk === null) return empty();
+    const tbCodes = v.tb3 === '1' ? 8 : 4;
+    let tb: number;
+    let t: number;
+    let w: number = WWDG_T_MAX;
+    let sol: WatchdogSolution | null = null;
+
+    if (mode === 'target') {
+      const target = positive('wt', v.wt, 'Target timeout', TIME[v.wtUnit] ?? 1);
+      const early = optionalTime('wearly', v.wearly, v.wearlyUnit);
+      if (target === null || early === null) return empty();
+      sol = solveWwdg(pclk, target, tbCodes);
+      table(sol, 'wwdg');
+      if (sol.best < 0) {
+        const max = sol.options[sol.options.length - 1].max;
+        setError('wt', target > max ? `Longest possible timeout at this PCLK is ${s(max)}${tbCodes === 4 ? ' (more with the 3-bit WDGTB)' : ''}. Use the IWDG for longer timeouts.` : `Shortest possible timeout is ${s(sol.options[0].min)}.`);
+        clearResults(...W_RESULTS, 'code');
+        show('exact-badge', false);
+        return warnings([]);
+      }
+      const best = sol.options[sol.best];
+      tb = best.code;
+      t = best.reload;
+      show('exact-badge', best.error === 0);
+      if (early > 0) {
+        const ww = wwdgWindow(pclk, tb, t, early);
+        if (ww === null) setError('wearly', 'The window must open before the early wakeup at 0x40.');
+        else w = ww;
+      }
+    } else {
+      table(null, 'wwdg');
+      show('exact-badge', false);
+      tb = Number.parseInt(v.tb, 10) || 0;
+      if (tb >= tbCodes) {
+        setError('tb', 'WDGTB above 3 needs the 3-bit WDGTB.');
+        return clearResults(...W_RESULTS, 'code');
+      }
+      setError('tb', null);
+      const tt = register('wcnt', v.wcnt, WWDG_T_MIN, WWDG_T_MAX, 'T');
+      const ww = register('wwin', v.wwin, WWDG_T_MIN, WWDG_T_MAX, 'W', WWDG_T_MAX);
+      if (tt === null || ww === null) return clearResults(...W_RESULTS, 'code');
+      t = tt;
+      w = ww;
+    }
+
+    const rep = wwdgReport(pclk, tb, t, w);
+    const div = 4096 * 2 ** tb;
+    setResult('wTimeout', s(rep.timeout));
+    setResult('wTb', `${tb} (÷${div})`);
+    setResult('wT', `${hex(t, 2)} (${t - 0x3f} ticks)`);
+    setResult('wW', w >= t ? `${hex(w, 2)} (no window)` : hex(w, 2));
+    setResult('wTick', s(rep.tick));
+    setResult('wSafe', `${rep.windowOpen === 0 ? '0' : s(rep.windowOpen)} … ${s(rep.timeout)}`);
+    setResult('wEwi', s(rep.ewi));
+    warnings(t === WWDG_T_MIN ? ['With T = 0x40 the early wakeup interrupt fires right after a refresh.'] : []);
+
+    setResult(
+      'code',
+      `/* WWDG: PCLK ${formatSI(pclk, 'Hz', 4)} / ${div}, T = ${hex(t, 2)} -> ${s(rep.timeout)}${w < t ? `, window opens after ${s(rep.windowOpen)}` : ''} */
+/* Enable the WWDG clock in RCC first (WWDGEN). */
+WWDG->CFR = (${tb}U << WWDG_CFR_WDGTB_Pos) | ${hex(w, 2)};  /* prescaler and window */
+WWDG->CR  = WWDG_CR_WDGA | ${hex(t, 2)};                  /* start, counter = ${hex(t, 2)} */
+
+/* Refresh between ${rep.windowOpen === 0 ? '0' : s(rep.windowOpen)} and ${s(rep.timeout)} after the previous one */
+WWDG->CR = ${hex(t, 2)};
+
+/* STM32 HAL */
+hwwdg.Instance = WWDG;
+hwwdg.Init.Prescaler = WWDG_PRESCALER_${2 ** tb};
+hwwdg.Init.Window = ${hex(w, 2)};
+hwwdg.Init.Counter = ${hex(t, 2)};
+hwwdg.Init.EWIMode = WWDG_EWI_DISABLE;  /* WWDG_EWI_ENABLE: interrupt ${s(rep.ewi)} after a refresh */
+HAL_WWDG_Init(&hwwdg);                  /* then HAL_WWDG_Refresh(&hwwdg) */`,
+    );
+  }
+
+  const run = bindForm(form, (v) => {
+    const wd = v.wd === 'wwdg' ? 'wwdg' : 'iwdg';
+    const mode = v.mode === 'regs' ? 'regs' : 'target';
+    form.querySelectorAll<HTMLElement>('[data-wd]').forEach((el) => (el.hidden = el.dataset.wd !== wd));
+    form.querySelectorAll<HTMLElement>('[data-mode]').forEach((el) => (el.hidden = el.dataset.mode !== mode));
+    for (const n of ALL_ERRORS) setError(n, null);
+    if (wd === 'iwdg') runIwdg(v, mode);
+    else runWwdg(v, mode);
+  });
+
+  // A preset fills the LSI fields and the window toggle; editing those fields switches to Custom.
+  field('preset').addEventListener('change', () => {
+    const p = LSI_PRESETS.find((x) => x.id === field('preset').value);
+    if (!p) return;
+    field('lsi').value = String(p.typ / 1e3);
+    field('lsiMin').value = String(p.min / 1e3);
+    field('lsiMax').value = String(p.max / 1e3);
+    (field('win') as HTMLInputElement).checked = p.window;
+    run();
+  });
+  for (const n of ['lsi', 'lsiMin', 'lsiMax', 'win']) {
+    field(n).addEventListener('input', () => {
+      field('preset').value = 'custom';
+    });
+  }
+</script>

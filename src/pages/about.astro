@@ -1,0 +1,181 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import ContactLinks from '../components/ContactLinks.astro';
+import { SITE } from '../config';
+import { TOOLS } from '../tools';
+import { url } from '../utils/paths';
+---
+
+<BaseLayout title="About" description={`About ${SITE.name}: who builds it, how the calculators are verified, and how your data is handled.`}>
+  <header class="about-hero">
+    <h1>About {SITE.name}</h1>
+    <p class="about-lede">
+      {SITE.name} is a set of {TOOLS.length} calculators for the small, fiddly sums embedded engineers do every day:
+      timer prescalers, baud-rate dividers, radio airtime, power-saving timers, CRCs, number formats. I built it because
+      the existing tools were scattered, ad-heavy, or quietly wrong.
+    </p>
+  </header>
+
+  <div class="about-grid">
+    <section class="about-card" aria-labelledby="about-checked">
+      <span class="about-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6z" /><path d="m8.8 12 2.2 2.2 4.4-4.4" />
+        </svg>
+      </span>
+      <h2 id="about-checked">How the results are checked</h2>
+      <ul>
+        <li>All formulas live in small, pure TypeScript modules with unit tests against known reference values.</li>
+        <li>Every page shows the formula it uses and the specification or datasheet it comes from.</li>
+        <li>Where a value is easy to get wrong, the page says so and explains the edge case.</li>
+      </ul>
+      <p>
+        Even so, check anything safety- or certification-critical against the original document. If you find a
+        mistake, please <a href={url('contact/')}>report it</a>: it gets fixed quickly.
+      </p>
+    </section>
+
+    <section class="about-card" aria-labelledby="about-privacy">
+      <span class="about-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="4.5" y="10.5" width="15" height="10" rx="2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /><path d="M12 14.5v2" />
+        </svg>
+      </span>
+      <h2 id="about-privacy">Privacy</h2>
+      <p>
+        There are no ads, no cookies and no tracking scripts. Every calculation runs in your browser; nothing you type
+        is sent anywhere.
+      </p>
+      <p>The site also works offline once you have visited it, which helps in labs without a network connection.</p>
+    </section>
+
+    <section class="about-card" aria-labelledby="about-who">
+      <span class="about-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="8" r="3.5" /><path d="M5 20a7 7 0 0 1 14 0" />
+        </svg>
+      </span>
+      <h2 id="about-who">Who builds it</h2>
+      <p>
+        I'm {SITE.owner}, an embedded systems engineer. I build {SITE.name} in my spare time from the calculations I
+        kept redoing by hand at work. You can reach me on GitHub or LinkedIn.
+      </p>
+      <div class="about-links">
+        <ContactLinks compact />
+      </div>
+    </section>
+  </div>
+
+  <section class="about-card about-disclaimer" aria-labelledby="about-disclaimer">
+    <h2 id="about-disclaimer">Disclaimer</h2>
+    <p>
+      The calculators, decoders and explanations on {SITE.name} are provided free of charge, "as is", for information
+      only. Despite the testing described above, they can contain mistakes, and specifications, datasheets and errata
+      change over time. No warranty of any kind is given that the results are accurate, complete or fit for a
+      particular purpose.
+    </p>
+    <p>
+      You are responsible for verifying every value against the original documentation and on your own hardware
+      before relying on it. We accept no responsibility or liability for any loss, damage or injury,
+      direct or indirect, arising from the use of this site or its results, including damaged hardware, failed
+      certification, lost data or project delays.
+    </p>
+  </section>
+</BaseLayout>
+
+<style>
+  .about-hero {
+    margin: var(--s5) 0;
+    padding: var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .about-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image: linear-gradient(var(--rule) 1px, transparent 1px),
+      linear-gradient(90deg, var(--rule) 1px, transparent 1px);
+    background-size: 24px 24px;
+    mask-image: radial-gradient(ellipse 45% 120% at 100% 0%, #000, transparent 70%);
+    -webkit-mask-image: radial-gradient(ellipse 45% 120% at 100% 0%, #000, transparent 70%);
+  }
+  .about-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 3px;
+    background: var(--accent);
+  }
+  .about-hero h1 {
+    margin: 0 0 var(--s3);
+    font-size: clamp(1.6rem, 2vw + 1rem, 2.1rem);
+    font-weight: 750;
+    letter-spacing: -0.03em;
+  }
+  .about-lede {
+    margin: 0;
+    font-size: var(--text-lg);
+    color: var(--ink-muted);
+    max-width: none;
+  }
+  .about-grid {
+    display: grid;
+    gap: var(--s5);
+    grid-template-columns: repeat(auto-fit, minmax(min(19rem, 100%), 1fr));
+    align-items: stretch;
+  }
+  .about-card {
+    display: flex;
+    flex-direction: column;
+    padding: var(--s5);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    min-width: 0;
+  }
+  .about-icon {
+    display: grid;
+    place-items: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: var(--radius);
+    color: var(--accent);
+    background: var(--accent-soft);
+    margin-bottom: var(--s3);
+  }
+  .about-card h2 {
+    margin: 0 0 var(--s3);
+    font-size: var(--text-lg);
+  }
+  .about-card ul {
+    padding-left: var(--s5);
+  }
+  .about-card li {
+    margin-bottom: var(--s2);
+  }
+  .about-card p:last-child {
+    margin-bottom: 0;
+  }
+  .about-disclaimer {
+    margin-top: var(--s5);
+  }
+  .about-disclaimer p {
+    color: var(--ink-muted);
+    max-width: none;
+  }
+  .about-links {
+    margin-top: auto;
+    padding-top: var(--s2);
+  }
+  .about-links :global(.contact-links) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+</style>

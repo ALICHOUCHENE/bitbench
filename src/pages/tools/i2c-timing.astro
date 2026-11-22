@@ -1,0 +1,375 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import Toggle from '../../components/Toggle.astro';
+import CodeOutput from '../../components/CodeOutput.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'ST RM0351 — STM32L4 reference manual, §37.4.9 I2C timings and §37.7.5 I2C_TIMINGR',
+    note: 'same I2C v2 peripheral in F0, F3, F7, G0, G4, L0, L5, H7, U5, WB…',
+    href: 'https://www.st.com/resource/en/reference_manual/rm0351-stm32l47xxx-stm32l48xxx-stm32l49xxx-and-stm32l4axxx-advanced-armbased-32bit-mcus-stmicroelectronics.pdf',
+  },
+  { title: 'ST AN4235 — I2C timing configuration tool for STM32F3/F0 microcontrollers' },
+  { title: 'NXP UM10204 Rev. 7 — I2C-bus specification and user manual, table 10', href: 'https://www.nxp.com/docs/en/user-guide/UM10204.pdf' },
+  {
+    title: 'Linux kernel, drivers/i2c/busses/i2c-stm32f7.c — stm32f7_i2c_compute_timing()',
+    href: 'https://github.com/torvalds/linux/blob/master/drivers/i2c/busses/i2c-stm32f7.c',
+    note: 'search method',
+  },
+];
+
+const freqUnits = [
+  { value: 'MHz', label: 'MHz' },
+  { value: 'kHz', label: 'kHz' },
+  { value: 'Hz', label: 'Hz' },
+];
+---
+
+<ToolLayout slug="i2c-timing" references={references}>
+  <form id="i2c-form" novalidate>
+    <div class="tool-grid">
+      <div class="panel">
+        <h2 class="panel-title">Inputs</h2>
+        <div class="fields fields--wide">
+          <Segmented
+            name="mode"
+            label="Speed mode"
+            value="fast"
+            options={[
+              { value: 'standard', label: 'Standard 100 kHz' },
+              { value: 'fast', label: 'Fast 400 kHz' },
+              { value: 'fastplus', label: 'Fast+ 1 MHz' },
+            ]}
+          />
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <NumberInput name="clk" label="I2C kernel clock (I2CCLK)" value="16" units={freqUnits} unitValue="MHz" help="PCLK, HSI or SYSCLK, per RCC CCIPR" />
+          <NumberInput name="speed" label="Target SCL frequency" value="" units={freqUnits} unitValue="kHz" placeholder="mode max" help="Leave empty for the mode maximum" />
+          <NumberInput name="tr" label="Rise time tr" value="100" unit="ns" help="30 % → 70 %; 0.8473 · Rp · Cb" />
+          <NumberInput name="tf" label="Fall time tf" value="10" unit="ns" help="Usually 5–20 ns with strong drivers" />
+        </div>
+        <div class="fields" style="margin-top: var(--s4)">
+          <Toggle name="af" label="Analog noise filter on (ANFOFF = 0)" checked help="Adds 50–260 ns of delay" />
+          <NumberInput name="dnf" label="Digital noise filter DNF" value="0" inputmode="numeric" help="0–15 I2CCLK periods" />
+        </div>
+        <p class="help" style="margin-top: var(--s3)">
+          Get the rise time from your pull-up and bus capacitance with the <a href={toolUrl('i2c-pullup')}>I²C pull-up calculator</a>.
+        </p>
+      </div>
+
+      <section class="panel" aria-labelledby="i2c-results">
+        <h2 class="panel-title" id="i2c-results">Best TIMINGR</h2>
+        <dl class="results">
+          <ResultRow label="I2C_TIMINGR" name="timingr" primary />
+          <ResultRow label="SCL frequency (nominal)" name="fscl" />
+          <ResultRow label="SCL frequency, slowest case" name="fsclMin" help="3-cycle synchronisation and maximum analog filter delay" />
+          <ResultRow label="tLOW / tHIGH" name="lowHigh" />
+          <ResultRow label="tSDADEL (data hold)" name="tsdadel" />
+          <ResultRow label="tSCLDEL (data set-up)" name="tscldel" />
+          <ResultRow label="Prescaled clock tPRESC" name="tpresc" />
+        </dl>
+        <div class="reg" id="reg" aria-label="TIMINGR fields"></div>
+        <p class="note note--error" id="fail-note" hidden></p>
+      </section>
+    </div>
+
+    <section class="section" aria-labelledby="chk-title">
+      <h2 id="chk-title">Checks against the I²C specification and the reference manual</h2>
+      <div class="table-wrap">
+        <table class="data">
+          <thead>
+            <tr><th>Rule</th><th class="num">Value</th><th class="num">Limit</th><th></th></tr>
+          </thead>
+          <tbody id="chk-body"></tbody>
+        </table>
+      </div>
+      <CodeOutput name="code" label="C initialisation" />
+    </section>
+
+    <section class="section" aria-labelledby="dec-title">
+      <h2 id="dec-title">Decode an existing TIMINGR value</h2>
+      <p class="help">Checked against the clock, mode, rise/fall times and filters set above.</p>
+      <div class="fields">
+        <NumberInput name="dec" label="TIMINGR" value="" inputmode="text" placeholder="0x10320309" help="Hex, e.g. from CubeMX or a driver" />
+      </div>
+      <div id="dec-out" hidden>
+        <div class="reg" id="dec-reg" aria-label="Decoded TIMINGR fields"></div>
+        <dl class="results">
+          <ResultRow label="SCL frequency (nominal / slowest)" name="dFscl" />
+          <ResultRow label="tLOW / tHIGH" name="dLowHigh" />
+          <ResultRow label="tSDADEL / tSCLDEL" name="dDel" />
+        </dl>
+        <div class="table-wrap">
+          <table class="data">
+            <thead>
+              <tr><th>Rule</th><th class="num">Value</th><th class="num">Limit</th><th></th></tr>
+            </thead>
+            <tbody id="dec-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>tI2CCLK  = 1 / fI2CCLK
+tPRESC   = (PRESC + 1) · tI2CCLK
+tSYNC    = tAF + DNF · tI2CCLK + 2…3 · tI2CCLK        (each edge; tAF = 50…260 ns when the analog filter is on)
+tLOW     = (SCLL + 1) · tPRESC + tSYNC
+tHIGH    = (SCLH + 1) · tPRESC + tSYNC
+tSCL     = tLOW + tHIGH + tr + tf
+
+tSDADEL  = SDADEL · tPRESC + tI2CCLK
+           ≥ tf + tHD;DAT(min) − tAF(min) − (DNF + 3) · tI2CCLK
+           ≤ tVD;DAT(max) − tr − tAF(max) − (DNF + 4) · tI2CCLK
+tSCLDEL  = (SCLDEL + 1) · tPRESC  ≥  tr + tSU;DAT(min)
+
+Also: tI2CCLK &lt; (tLOW − tfilters) / 4  and  tI2CCLK &lt; tHIGH
+
+TIMINGR  = PRESC[31:28] | SCLDEL[23:20] | SDADEL[19:16] | SCLH[15:8] | SCLL[7:0]
+
+             Standard   Fast     Fast+
+tLOW min     4.7 µs     1.3 µs   0.5 µs
+tHIGH min    4.0 µs     0.6 µs   0.26 µs
+tSU;DAT min  250 ns     100 ns   50 ns
+tVD;DAT max  3.45 µs    0.9 µs   0.45 µs
+tr max       1000 ns    300 ns   120 ns
+tf max       300 ns     300 ns   120 ns</pre>
+    <p>
+      For every PRESC from 0 to 15 the tool takes the smallest SCLDEL and SDADEL that meet the windows above, then
+      searches SCLL and SCLH for the SCL period closest to the target without exceeding it (and staying above 80 % of
+      it), the same approach as the Linux STM32 I2C driver. The nominal frequency uses 2 synchronisation cycles and
+      the minimum analog filter delay. The slowest case uses 3 cycles and 260 ns. The real bus runs between the two.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>Why STM32 I2C timing needs a calculator</h2>
+    <p>
+      The I2C peripheral in most STM32 families after the F1/F4 generation has no simple clock divider. A single 32-bit
+      register, TIMINGR, sets the SCL low and high counts, a prescaler, and two delays that place SDA changes safely
+      inside the SCL low phase. CubeMX computes it for you, but the value only fits the clock it was generated for. Change
+      the I2C clock source from HSI (16 MHz) to PCLK (64 MHz) and the same TIMINGR runs the bus four times faster, far out
+      of specification.
+    </p>
+    <h3>Rise time is the real limit</h3>
+    <p>
+      The peripheral only sees an edge once SCL has crossed the input threshold, so the rise time is part of every clock
+      period. With a 1 kΩ… 10 kΩ pull-up and a few hundred picofarads of bus, tr is hundreds of nanoseconds, a large slice
+      of a 2.5 µs Fast-mode period. If you enter a smaller tr than the bus really has, the clock will run slower than
+      calculated and the data set-up margin shrinks. Measure tr on a scope between 30 % and 70 % of VDD, or compute it
+      with the <a href={toolUrl('i2c-pullup')}>pull-up calculator</a>.
+    </p>
+    <h3>Filters and Fast-mode Plus</h3>
+    <p>
+      The analog filter suppresses spikes shorter than 50 ns but delays each edge by up to 260 ns. In Fast-mode Plus the
+      data must be valid within 450 ns of SCL falling, so the filter delay, the rise time and the 4-cycle
+      synchronisation can leave no room for SDADEL at all. The tool then reports no solution: switch the analog filter
+      off and use a small DNF instead, raise the I2C clock, or speed up the rise time with a stronger pull-up. Remember
+      that ANFOFF and DNF can only be changed while the peripheral is disabled (PE = 0).
+    </p>
+    <p>
+      For the other serial buses on the same chip, see the <a href={toolUrl('spi-timing')}>SPI clock</a>,
+      <a href={toolUrl('uart-baud')}>UART baud rate</a> and <a href={toolUrl('can-timing')}>CAN bit timing</a> calculators.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<style>
+  .reg {
+    display: grid;
+    grid-template-columns: 4fr 4fr 4fr 4fr 8fr 8fr;
+    margin-top: var(--s4);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+  .reg:empty {
+    display: none;
+  }
+  :global(.reg-f) {
+    padding: var(--s2) var(--s1);
+    text-align: center;
+    border-left: 1px solid var(--rule);
+    min-width: 0;
+  }
+  :global(.reg-f:first-child) {
+    border-left: 0;
+  }
+  :global(.reg-f b) {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--ink-muted);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global(.reg-f.is-res) {
+    color: var(--ink-muted);
+    background: var(--surface-2, transparent);
+  }
+  #dec-out .results {
+    margin-top: var(--s4);
+  }
+</style>
+
+<script>
+  import { bindForm, clearResults, esc, setError, setResult, show } from '../../scripts/tool-client';
+  import { applyUnit, formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import type { I2cMode } from '../../lib/analog';
+  import {
+    DNF_MAX,
+    I2C_TIMING_SPECS,
+    checkTiming,
+    decodeTimingr,
+    formatTimingr,
+    parseTimingr,
+    solveTiming,
+    timingFromFields,
+    type I2cTimingConfig,
+    type TimingCheck,
+    type TimingFields,
+    type TimingResult,
+  } from '../../lib/i2c-timing';
+
+  const FREQ: Record<string, number> = { Hz: 1, kHz: 1e3, MHz: 1e6 };
+  const RESULTS = ['timingr', 'fscl', 'fsclMin', 'lowHigh', 'tsdadel', 'tscldel', 'tpresc', 'code'];
+  const form = document.getElementById('i2c-form') as HTMLFormElement;
+  const chkBody = document.getElementById('chk-body')!;
+  const decBody = document.getElementById('dec-body')!;
+
+  const t = (s: number) => formatSI(s, 's', 4);
+  const hz = (f: number) => formatSI(f, 'Hz', 5);
+  const hex = (v: number, digits: number) => `0x${v.toString(16).toUpperCase().padStart(digits, '0')}`;
+
+  function regMarkup(f: TimingFields): string {
+    const cell = (name: string, bits: string, value: string, cls = '') => `<div class="reg-f${cls}"><b>${name} ${bits}</b>${value}</div>`;
+    return (
+      cell('PRESC', '[31:28]', String(f.presc)) +
+      cell('res.', '[27:24]', '0', ' is-res') +
+      cell('SCLDEL', '[23:20]', String(f.scldel)) +
+      cell('SDADEL', '[19:16]', String(f.sdadel)) +
+      cell('SCLH', '[15:8]', `${f.sclh} <small>(${hex(f.sclh, 2)})</small>`) +
+      cell('SCLL', '[7:0]', `${f.scll} <small>(${hex(f.scll, 2)})</small>`)
+    );
+  }
+
+  function checkRows(checks: TimingCheck[]): string {
+    return checks
+      .map((c) => {
+        const fmt = c.unit === 'Hz' ? hz : t;
+        const op = c.kind === 'min' ? '≥' : '≤';
+        const badge = c.ok ? '<span class="badge badge--ok">pass</span>' : '<span class="badge badge--error">fail</span>';
+        return `<tr><td>${esc(c.label)}</td><td class="num">${esc(fmt(c.value))}</td><td class="num">${op} ${esc(fmt(c.limit))}</td><td>${badge}</td></tr>`;
+      })
+      .join('');
+  }
+
+  function code(r: TimingResult, c: I2cTimingConfig): string {
+    const v = formatTimingr(r.timingr);
+    return [
+      `/* ${I2C_TIMING_SPECS[c.mode].fSclMax / 1e3} kHz mode, I2CCLK ${formatSI(c.clock, 'Hz')}, SCL ≈ ${hz(r.fScl)} */`,
+      `/* PRESC=${r.fields.presc} SCLDEL=${r.fields.scldel} SDADEL=${r.fields.sdadel} SCLH=${r.fields.sclh} SCLL=${r.fields.scll} */`,
+      '',
+      '/* HAL */',
+      `hi2c1.Init.Timing = ${v};`,
+      '',
+      '/* Register level (PE must be 0) */',
+      `I2C1->TIMINGR = ${v}U;`,
+      c.analogFilter ? 'I2C1->CR1 &= ~I2C_CR1_ANFOFF;' : 'I2C1->CR1 |= I2C_CR1_ANFOFF;',
+      `I2C1->CR1 = (I2C1->CR1 & ~I2C_CR1_DNF) | (${c.dnf}U << I2C_CR1_DNF_Pos);`,
+    ].join('\n');
+  }
+
+  bindForm(form, (v) => {
+    const mode = (['standard', 'fast', 'fastplus'].includes(v.mode) ? v.mode : 'fast') as I2cMode;
+    const spec = I2C_TIMING_SPECS[mode];
+
+    const clkIn = parseNumber(v.clk);
+    const clock = clkIn === null ? NaN : applyUnit(v.clk, clkIn, FREQ[v.clkUnit] ?? 1e6);
+    setError('clk', !(clock > 0) ? 'Clock must be a positive number.' : clock > 600e6 ? 'Clock must be 600 MHz or less.' : null);
+
+    let target = spec.fSclMax;
+    let speedErr: string | null = null;
+    if (v.speed.trim() !== '') {
+      const sIn = parseNumber(v.speed);
+      const sp = sIn === null ? NaN : applyUnit(v.speed, sIn, FREQ[v.speedUnit] ?? 1e3);
+      if (!(sp > 0)) speedErr = 'Target must be a positive number.';
+      else if (sp > spec.fSclMax * (1 + 1e-9)) speedErr = `Above the ${hz(spec.fSclMax)} maximum of this mode.`;
+      else target = sp;
+    }
+    setError('speed', speedErr);
+
+    const tr = (parseNumber(v.tr) ?? NaN) * 1e-9;
+    const tf = (parseNumber(v.tf) ?? NaN) * 1e-9;
+    setError('tr', !(tr >= 0) ? 'Rise time must be 0 ns or more.' : null);
+    setError('tf', !(tf >= 0) ? 'Fall time must be 0 ns or more.' : null);
+    const dnf = parseNumber(v.dnf);
+    const dnfBad = dnf === null || !Number.isInteger(dnf) || dnf < 0 || dnf > DNF_MAX;
+    setError('dnf', dnfBad ? `DNF must be a whole number from 0 to ${DNF_MAX}.` : null);
+
+    const valid = clock > 0 && clock <= 600e6 && tr >= 0 && tf >= 0 && !dnfBad && speedErr === null;
+    const c: I2cTimingConfig = { clock, mode, target, tr, tf, analogFilter: v.af === '1', dnf: dnf ?? 0 };
+
+    if (!valid) {
+      clearResults(...RESULTS);
+      document.getElementById('reg')!.innerHTML = '';
+      chkBody.innerHTML = '';
+      show('fail-note', false);
+      show('dec-out', false);
+      return;
+    }
+
+    const sol = solveTiming(c);
+    const failNote = document.getElementById('fail-note')!;
+    if (!sol.best) {
+      clearResults(...RESULTS);
+      setResult('timingr', 'no solution');
+      document.getElementById('reg')!.innerHTML = '';
+      chkBody.innerHTML = '';
+      failNote.textContent = sol.reason ?? 'No solution.';
+      show('fail-note', true);
+    } else {
+      const r = sol.best;
+      show('fail-note', false);
+      setResult('timingr', formatTimingr(r.timingr));
+      setResult('fscl', `${hz(r.fScl)} (${formatNumber((r.fScl / target) * 100, 4)} % of target)`);
+      setResult('fsclMin', hz(r.fSclMin));
+      setResult('lowHigh', `${t(r.tLow)} / ${t(r.tHigh)}`);
+      setResult('tsdadel', t(r.tSdadel));
+      setResult('tscldel', t(r.tScldel));
+      setResult('tpresc', t(r.tPresc));
+      document.getElementById('reg')!.innerHTML = regMarkup(r.fields);
+      chkBody.innerHTML = checkRows(checkTiming(c, r));
+      setResult('code', code(r, c));
+    }
+
+    // Decoder
+    if (v.dec.trim() === '') {
+      setError('dec', null);
+      show('dec-out', false);
+      return;
+    }
+    const raw = parseTimingr(v.dec);
+    if (raw === null) {
+      setError('dec', 'Enter up to 8 hex digits, e.g. 0x10320309.');
+      show('dec-out', false);
+      return;
+    }
+    setError('dec', (raw & 0x0f000000) !== 0 ? 'Bits 27:24 are reserved and should be 0; they are ignored here.' : null);
+    const f = decodeTimingr(raw);
+    const d = timingFromFields(c, f);
+    document.getElementById('dec-reg')!.innerHTML = regMarkup(f);
+    setResult('dFscl', `${hz(d.fScl)} / ${hz(d.fSclMin)}`);
+    setResult('dLowHigh', `${t(d.tLow)} / ${t(d.tHigh)}`);
+    setResult('dDel', `${t(d.tSdadel)} / ${t(d.tScldel)}`);
+    decBody.innerHTML = checkRows(checkTiming(c, d));
+    show('dec-out', true);
+  });
+</script>

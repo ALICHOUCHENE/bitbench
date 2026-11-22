@@ -1,0 +1,334 @@
+---
+import ToolLayout from '../../components/ToolLayout.astro';
+import NumberInput from '../../components/NumberInput.astro';
+import ResultRow from '../../components/ResultRow.astro';
+import Segmented from '../../components/Segmented.astro';
+import { toolUrl } from '../../utils/paths';
+
+const references = [
+  {
+    title: 'NXP UM10204, I²C-bus specification and user manual, rev. 7.0 (1 October 2021)',
+    href: 'https://www.nxp.com/docs/en/user-guide/UM10204.pdf',
+    note: 'Table 10 (VOL, IOL, Ci), Table 11 (tr, Cb), §7.1 Pull-up resistor sizing, §7.2 high bus capacitance',
+  },
+  {
+    title: 'Texas Instruments SLVA689: I²C Bus Pullup Resistor Calculation',
+    href: 'https://www.ti.com/lit/an/slva689/slva689.pdf',
+  },
+  { title: 'IEC 60063:2015 — Preferred number series for resistors (E12, E24)' },
+];
+---
+
+<ToolLayout slug="i2c-pullup" references={references}>
+  <form id="i2c-form" novalidate>
+    <div class="tool-grid">
+      <div class="panel">
+        <h2 class="panel-title">Bus</h2>
+        <div class="fields fields--wide">
+          <Segmented
+            name="mode"
+            label="Speed mode"
+            value="fast"
+            options={[
+              { value: 'standard', label: 'Standard 100 kHz' },
+              { value: 'fast', label: 'Fast 400 kHz' },
+              { value: 'fastplus', label: 'Fast+ 1 MHz' },
+            ]}
+          />
+        </div>
+        <div class="fields" style="margin-top: var(--s3)">
+          <NumberInput name="vdd" label="Pull-up supply VDD" value="3.3" unit="V" />
+        </div>
+        <div class="fields fields--wide" style="margin-top: var(--s3)">
+          <Segmented
+            name="cbsrc"
+            label="Bus capacitance"
+            options={[
+              { value: 'direct', label: 'I know it' },
+              { value: 'estimate', label: 'Estimate it' },
+            ]}
+          />
+        </div>
+        <div class="fields" style="margin-top: var(--s3)">
+          <div data-cbsrc="direct">
+            <NumberInput name="cb" label="Bus capacitance Cb" value="100" unit="pF" help="Per line (SDA or SCL)" />
+          </div>
+          <div data-cbsrc="estimate" hidden>
+            <NumberInput name="ndev" label="Devices on the bus" value="4" inputmode="numeric" help="Including the controller" />
+          </div>
+          <div data-cbsrc="estimate" hidden>
+            <NumberInput name="cpin" label="Capacitance per pin" value="10" unit="pF" help="UM10204 maximum Ci; datasheets often list less" />
+          </div>
+          <div data-cbsrc="estimate" hidden>
+            <NumberInput name="len" label="Trace / cable length" value="10" unit="cm" />
+          </div>
+          <div data-cbsrc="estimate" hidden>
+            <NumberInput name="cpcm" label="Capacitance per length" value="1" unit="pF/cm" help="Rough: PCB traces are often around 0.5–1 pF/cm; cables vary widely" />
+          </div>
+        </div>
+        <p class="note" data-cbsrc="estimate" hidden>
+          This is a rough estimate. Connectors, ESD diodes and level shifters add capacitance too. To confirm, measure the
+          30 %→70 % rise time on a scope and compute Cb = tr / (0.8473 · Rp).
+        </p>
+
+        <h2 class="panel-title" style="margin-top: var(--s5)">Check a resistor</h2>
+        <div class="fields">
+          <NumberInput name="r" label="Chosen pull-up Rp" value="2.2k" unit="Ω" placeholder="optional" help="Leave empty to see the range only" />
+          <Segmented
+            name="series"
+            label="Suggest from"
+            value="E12"
+            options={[
+              { value: 'E12', label: 'E12' },
+              { value: 'E24', label: 'E24' },
+            ]}
+          />
+        </div>
+      </div>
+
+      <section class="panel" aria-labelledby="i2c-results">
+        <h2 class="panel-title" id="i2c-results">Results</h2>
+        <dl class="results">
+          <ResultRow label="Pull-up range" name="range" primary />
+          <ResultRow label="Rp(min) = (VDD − VOL) / IOL" name="rmin" />
+          <ResultRow label="Rp(max) = tr / (0.8473 · Cb)" name="rmax" />
+          <ResultRow label="Bus capacitance used" name="cbv" />
+          <ResultRow label="Mode limits: tr max / Cb max" name="limits" />
+          <ResultRow label="Low-level condition: VOL max at IOL" name="low" />
+        </dl>
+        <ul class="checks" id="checks" aria-live="polite"></ul>
+        <div id="r-results">
+          <h3 class="sub">With the chosen resistor</h3>
+          <dl class="results">
+            <ResultRow label="Rise time 30 %→70 % (0.8473 · Rp · Cb)" name="tr" />
+            <ResultRow label="Sink current at VOL max" name="isink" />
+            <ResultRow label="Supply current per line while LOW" name="ilow" />
+          </dl>
+        </div>
+        <h3 class="sub">Standard values in range</h3>
+        <p class="chips" id="chips"></p>
+        <p class="note" id="low-note" hidden></p>
+      </section>
+    </div>
+  </form>
+
+  <Fragment slot="formula">
+    <pre>Rp(min) = (VDD − VOL(max)) / IOL                 UM10204 §7.1, Eq. (2)
+Rp(max) = tr / (0.8473 · Cb)                       UM10204 §7.1, Eq. (1)
+
+0.8473 = ln(0.7 / 0.3): time for an RC rise from 0.3·VDD to 0.7·VDD (VIL → VIH)
+
+                  Standard     Fast        Fast-mode Plus
+fSCL max          100 kHz      400 kHz     1 MHz
+tr max            1000 ns      300 ns      120 ns          (Table 11)
+Cb max            400 pF       400 pF      550 pF          (Table 11)
+IOL at VOL=0.4 V  3 mA         3 mA        20 mA           (Table 10, VDD > 2 V)
+VDD ≤ 2 V:        VOL(max) = 0.2·VDD at 2 mA sink current  (Table 10, VOL2; Fm and Fm+)</pre>
+    <p>
+      Sink current with a chosen resistor is computed at the VOL(max) level, (VDD − VOL) / Rp, which is the condition
+      the specification places on the driver. Rise time uses the same lumped RC model as the specification, so it
+      ignores trace inductance and the driver's own slew rate.
+    </p>
+  </Fragment>
+
+  <Fragment slot="explainer">
+    <h2>How to pick an I²C pull-up</h2>
+    <p>
+      I²C lines are open-drain. Devices only pull them low, and the pull-up resistor brings them back high. That
+      sets two limits. If the resistor is <strong>too small</strong>, the weakest driver on the bus cannot sink enough
+      current to pull the line below VOL(max): 3 mA at 0.4 V for Standard- and Fast-mode, 20 mA for Fast-mode Plus.
+      If it is <strong>too large</strong>, the RC formed with the bus capacitance makes the rising edge slower than the
+      maximum rise time: 1000 ns, 300 ns or 120 ns depending on the mode. Any value between Rp(min) and Rp(max) meets
+      the specification.
+    </p>
+    <p>
+      Inside that window, a value near the low end gives faster edges and more noise margin. A value near the high end
+      saves power, because while a line is held low the resistor draws VDD / Rp continuously. At 3.3 V, a 1 kΩ
+      pull-up costs 3.3 mA per line. Battery designs usually sit toward the top of the range and use the slowest mode
+      that meets throughput.
+    </p>
+    <h3>Estimating bus capacitance</h3>
+    <p>
+      Cb is the total capacitance of one bus line: every connected pin (the specification allows up to 10 pF each),
+      traces, connectors, cables and protection devices. A short bus on one board with a few sensors is typically
+      well under 100 pF. Off-board cables add capacitance quickly. If the result says no resistor works, Rp(min)
+      is above Rp(max): use a lower speed mode, shorten or split the bus with a buffer such as the PCA9515, or use a
+      current-source pull-up. UM10204 §7.2 discusses these options.
+    </p>
+    <h3>Things the formula does not show</h3>
+    <ul>
+      <li>
+        <strong>Low supply voltages.</strong> At VDD ≤ 2 V the specification relaxes VOL to 0.2·VDD at 2 mA, so Rp(min)
+        drops. This calculator switches to that condition automatically. Standard-mode does not specify it, so treat
+        that case as an extrapolation.
+      </li>
+      <li>
+        <strong>Fast-mode at full load.</strong> UM10204 notes that driving the full 400 pF at 400 kHz needs 6 mA IOL at
+        VOL = 0.6 V. A 3 mA-only device works, but not at 400 kHz with 400 pF.
+      </li>
+      <li>
+        <strong>Parallel pull-ups.</strong> Breakout boards often carry their own 4.7 kΩ or 10 kΩ resistors. Four
+        boards with 4.7 kΩ give 1.175 kΩ in parallel, which is below the 1.53 kΩ Rp(min) at 5 V. Compute the parallel
+        value and enter it as the chosen resistor.
+      </li>
+      <li>
+        <strong>Series resistors and level shifters</strong> add their own drop and delay. Include them in the margin.
+      </li>
+      <li>
+        <strong>Clock stretching and microcontroller timing.</strong> A slow rising edge also eats into tHIGH and
+        tSU;DAT. If you run close to tr max, check the controller's timing register calculation; for STM32 use the <a href={toolUrl('i2c-timing')}>I²C TIMINGR calculator</a> with this rise time. The <a href={toolUrl('rc-filter')}>RC calculator</a> helps with edge-time estimates for other RC networks.
+      </li>
+    </ul>
+    <p>
+      Always confirm on hardware. Measure the 30 %→70 % rise time on SDA and SCL with a low-capacitance probe, at the
+      far end of the bus, and compare it with the tr limit for your mode.
+    </p>
+  </Fragment>
+</ToolLayout>
+
+<style>
+  /* .fields / .panel set display, which would override the hidden attribute. */
+  [hidden] {
+    display: none !important;
+  }
+  .sub {
+    font-size: var(--text-sm);
+    font-weight: 650;
+    margin: var(--s4) 0 var(--s2);
+  }
+  .checks {
+    list-style: none;
+    padding: 0;
+    margin: var(--s3) 0 0;
+    display: grid;
+    gap: var(--s1);
+    font-size: var(--text-sm);
+  }
+  .checks :global(.badge) {
+    min-width: 3.2rem;
+    text-align: center;
+    margin-right: var(--s2);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s1);
+    margin: 0;
+  }
+  .chips :global(.btn) {
+    font-family: var(--font-mono);
+    padding: 0.1rem 0.5rem;
+  }
+</style>
+
+<script>
+  import { bindForm, setError, setResult, clearResults, show, esc } from '../../scripts/tool-client';
+  import { formatNumber, formatSI, parseNumber } from '../../lib/format';
+  import { I2C_MODES, i2cCheck, type I2cMode } from '../../lib/analog';
+  import { eValuesInRange, type ESeries } from '../../lib/eseries';
+
+  const form = document.getElementById('i2c-form') as HTMLFormElement;
+  const MAIN = ['range', 'rmin', 'rmax', 'cbv', 'limits', 'low'];
+  const RES = ['tr', 'isink', 'ilow'];
+  const compact = (v: number) => formatSI(v, '', 4).replace(' ', '');
+
+  function num(name: string, raw: string, label: string, opts: { positive?: boolean; min?: number } = {}): number | null {
+    const v = parseNumber(raw);
+    if (v === null) return setError(name, `${label} must be a number.`), null;
+    if (opts.positive && v <= 0) return setError(name, `${label} must be greater than zero.`), null;
+    if (opts.min !== undefined && v < opts.min) return setError(name, `${label} must be at least ${opts.min}.`), null;
+    setError(name, null);
+    return v;
+  }
+  /** Capacitance typed in pF; an explicit SI prefix ("100p", "0.1n") is taken as farads. */
+  function pf(name: string, raw: string, label: string, positive = true): number | null {
+    const v = num(name, raw, label, positive ? { positive: true } : { min: 0 });
+    if (v === null) return null;
+    return /[pnuµ]/.test(raw) ? v : v * 1e-12;
+  }
+
+  const check = (ok: boolean, text: string, warn = false) =>
+    `<li><span class="badge badge--${ok ? 'ok' : warn ? 'warn' : 'error'}">${ok ? 'PASS' : warn ? 'WARN' : 'FAIL'}</span>${esc(text)}</li>`;
+
+  const run = bindForm(form, (v) => {
+    document.querySelectorAll<HTMLElement>('[data-cbsrc]').forEach((el) => (el.hidden = el.dataset.cbsrc !== v.cbsrc));
+    const mode = v.mode as I2cMode;
+    const spec = I2C_MODES[mode];
+    const checks = document.getElementById('checks')!;
+    const chips = document.getElementById('chips')!;
+    const lowNote = document.getElementById('low-note')!;
+
+    const vdd = num('vdd', v.vdd, 'VDD', { positive: true });
+    let cb: number | null = null;
+    if (v.cbsrc === 'direct') {
+      cb = pf('cb', v.cb, 'Bus capacitance');
+    } else {
+      const n = parseNumber(v.ndev);
+      if (n === null || !Number.isInteger(n) || n < 1) setError('ndev', 'Number of devices must be a whole number of at least 1.');
+      else setError('ndev', null);
+      const cpin = pf('cpin', v.cpin, 'Pin capacitance', false);
+      const len = num('len', v.len, 'Length', { min: 0 });
+      const cpcm = pf('cpcm', v.cpcm, 'Capacitance per length', false);
+      if (n !== null && Number.isInteger(n) && n >= 1 && cpin !== null && len !== null && cpcm !== null) cb = n * cpin + len * cpcm;
+      if (cb !== null && cb <= 0) cb = null;
+    }
+    const rRaw = v.r.trim();
+    let r: number | undefined;
+    if (rRaw !== '') {
+      const rv = num('r', rRaw, 'Pull-up', { positive: true });
+      if (rv !== null) r = rv;
+    } else setError('r', null);
+    show('r-results', r !== undefined);
+
+    if (vdd === null || cb === null) {
+      clearResults(...MAIN, ...RES);
+      checks.innerHTML = '';
+      chips.textContent = '—';
+      lowNote.hidden = true;
+      return;
+    }
+
+    const c = i2cCheck(vdd, cb, mode, r);
+    setResult('rmin', formatSI(c.rpMin, 'Ω', 4));
+    setResult('rmax', formatSI(c.rpMax, 'Ω', 4));
+    setResult('range', c.feasible ? `${formatSI(c.rpMin, 'Ω', 3)} … ${formatSI(c.rpMax, 'Ω', 3)}` : 'none');
+    setResult('cbv', formatSI(cb, 'F', 4));
+    setResult('limits', `${formatSI(spec.trMax, 's')} / ${formatSI(spec.cbMax, 'F')}`);
+    setResult('low', `${formatNumber(c.low.vol, 3)} V at ${formatSI(c.low.iol, 'A')}`);
+
+    const items = [
+      check(c.capacitanceOk, `Bus capacitance ${formatSI(cb, 'F', 4)} ${c.capacitanceOk ? '≤' : '>'} ${formatSI(spec.cbMax, 'F')} limit for ${spec.label}`),
+      check(c.feasible, c.feasible ? 'A resistor range exists for these conditions' : 'Rp(min) > Rp(max): no resistor meets both limits. Lower the speed mode, reduce Cb or use a bus buffer.'),
+    ];
+    if (c.resistor) {
+      const x = c.resistor;
+      items.push(
+        check(x.riseOk, `Rise time ${formatSI(x.riseTime, 's', 4)} ${x.riseOk ? '≤' : '>'} ${formatSI(spec.trMax, 's')}`),
+        check(x.sinkOk, `Sink current ${formatSI(x.sinkCurrent, 'A', 3)} ${x.sinkOk ? '≤' : '>'} ${formatSI(c.low.iol, 'A')} at VOL = ${formatNumber(c.low.vol, 3)} V`),
+      );
+      setResult('tr', formatSI(x.riseTime, 's', 4));
+      setResult('isink', formatSI(x.sinkCurrent, 'A', 4));
+      setResult('ilow', formatSI(x.lowCurrent, 'A', 4));
+    } else clearResults(...RES);
+    checks.innerHTML = items.join('');
+
+    const vals = c.feasible ? eValuesInRange(v.series as ESeries, c.rpMin, c.rpMax) : [];
+    chips.innerHTML = vals.length
+      ? vals.map((x) => `<button class="btn" type="button" data-use="${compact(x)}" aria-label="Use ${esc(formatSI(x, 'Ω'))}">${esc(formatSI(x, 'Ω', 3))}</button>`).join('')
+      : esc(c.feasible ? `No ${v.series} value fits in this narrow range; try E24 or E96.` : 'None: the range is empty.');
+
+    const notes: string[] = [];
+    if (c.low.lowVoltage)
+      notes.push('VDD ≤ 2 V: Rp(min) uses VOL = 0.2·VDD at 2 mA (UM10204 Table 10, VOL2).' + (mode === 'standard' ? ' Standard-mode does not specify this case ("n/a"), so this is an extrapolation.' : ''));
+    if (mode === 'fast') notes.push('UM10204 (Table 10, note 4): driving the full bus load at 400 kHz needs 6 mA IOL at VOL = 0.6 V. Parts that only meet 3 mA still work, but not at 400 kHz with 400 pF.');
+    lowNote.hidden = notes.length === 0;
+    lowNote.textContent = notes.join(' ');
+  });
+
+  document.getElementById('chips')!.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-use]');
+    if (!btn) return;
+    (form.elements.namedItem('r') as HTMLInputElement).value = btn.dataset.use!;
+    run();
+  });
+</script>
